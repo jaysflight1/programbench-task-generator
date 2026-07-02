@@ -1,7 +1,9 @@
 from pbgen.schemas import (
+    CandidateEvaluationReport,
     ExecutableTestCase,
     ExecutableTestSuite,
     ExpectedOutput,
+    ReleasedTaskPackageManifest,
     RewardShapeReport,
     SuiteQualityReport,
     TaskSpec,
@@ -79,3 +81,34 @@ def test_executable_test_suite_serializes_canonical_cases() -> None:
     assert loaded.cases[0].args == ["--help"]
     assert loaded.cases[0].expected_stdout.contains == ["Usage"]
     assert loaded.cases[0].fixture_files == {"input.txt": "hello\n"}
+
+
+def test_release_and_candidate_reports_serialize_product_boundaries() -> None:
+    manifest = ReleasedTaskPackageManifest(
+        task_id="demo",
+        language="python",
+        build_system="script",
+        solver_package="/tmp/demo/solver",
+        evaluator_package="/tmp/demo/evaluator",
+        hidden_tests_path="/tmp/demo/evaluator/hidden_tests",
+        runtime_policy="sandboxed-local",
+        accepted_test_count=3,
+        package_hash="abc123",
+    )
+    report = CandidateEvaluationReport(
+        task_id="demo",
+        resolved=True,
+        tests_passed=3,
+        total_tests=3,
+        pass_rate=1.0,
+        build_success=True,
+        runtime_policy="sandboxed-local",
+        executable_path="/tmp/submission/program",
+    )
+
+    loaded_manifest = ReleasedTaskPackageManifest.model_validate_json(manifest.model_dump_json())
+    loaded_report = CandidateEvaluationReport.model_validate_json(report.model_dump_json())
+
+    assert loaded_manifest.accepted_test_count == 3
+    assert loaded_report.resolved is True
+    assert loaded_report.pass_rate == 1.0

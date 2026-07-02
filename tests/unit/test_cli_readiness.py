@@ -70,3 +70,41 @@ def test_run_task_generation_cli_args_override_profile_defaults() -> None:
     assert updated.model_command == ["fake-model", "--json"]
     assert updated.model_name == "review-model"
     assert updated.model_temperature == 0.05
+
+
+def test_product_workflow_cli_commands_parse() -> None:
+    parser = _build_parser()
+
+    construct = parser.parse_args(
+        [
+            "construct-task",
+            "--profile",
+            "pbgen_task.yaml",
+            "--iterations",
+            "2",
+            "--build-system",
+            "python-package",
+        ]
+    )
+    release = parser.parse_args(["release-package", "--task-id", "demo"])
+    evaluate = parser.parse_args(
+        [
+            "evaluate-submission",
+            "--package",
+            "artifacts/demo/packages/evaluator",
+            "--submission-source",
+            "candidate",
+            "--build-script",
+            "candidate/build.sh",
+        ]
+    )
+
+    assert construct.command == "construct-task"
+    assert construct.profile == "pbgen_task.yaml"
+    assert construct.iterations == 2
+    assert construct.build_system == "python-package"
+    assert release.command == "release-package"
+    assert release.task_id == "demo"
+    assert evaluate.command == "evaluate-submission"
+    assert evaluate.submission_source == "candidate"
+    assert evaluate.build_script == "candidate/build.sh"

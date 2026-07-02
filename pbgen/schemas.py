@@ -440,6 +440,45 @@ class BatchRunReport(PBModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class ReleasedTaskPackageManifest(PBModel):
+    """Manifest for a solver/evaluator package released from constructed artifacts."""
+
+    task_id: str
+    language: str | None = None
+    build_system: str | None = None
+    solver_package: Path
+    evaluator_package: Path
+    hidden_tests_path: Path
+    runtime_policy: str
+    accepted_test_count: int
+    package_hash: str
+
+
+class CandidateSubmission(PBModel):
+    """Candidate submission input accepted by the evaluation product."""
+
+    package_path: Path | None = None
+    submission_source: Path | None = None
+    build_script: Path | None = None
+    executable_path: Path | None = None
+
+
+class CandidateEvaluationReport(PBModel):
+    """ProgramBench-facing result for one candidate evaluation."""
+
+    task_id: str
+    resolved: bool
+    tests_passed: int
+    total_tests: int
+    pass_rate: float
+    build_success: bool
+    runtime_policy: str
+    executable_path: Path | None = None
+    build_log_path: Path | None = None
+    outcomes: list[PerTestOutcome] = Field(default_factory=list)
+    reason: str | None = None
+
+
 class GenerationEvent(PBModel):
     event_id: str
     task_id: str

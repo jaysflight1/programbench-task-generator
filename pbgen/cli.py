@@ -10,11 +10,11 @@ from pathlib import Path
 from collections.abc import Sequence
 
 from pbgen.build.build_agent import build_gold
-from pbgen.cleanroom.task_packager import package_cleanroom
+from pbgen.candidate_evaluator import evaluate_executable_candidate, evaluate_source_submission
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.efficiency.efficiency_score import score_efficiency
 from pbgen.errors import PBGenError
-from pbgen.eval.submission_runner import run_generated_suite, run_pytest_suite
+from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.quality.assertion_linter import lint_and_log
 from pbgen.quality.dummy_runner import DummyBinaryRunner
 from pbgen.quality.gold_determinism import run_gold_determinism
@@ -22,9 +22,11 @@ from pbgen.quality.redundancy import RedundancyAnalyzer
 from pbgen.quality.suite_scorer import score_suite
 from pbgen.pipeline import run_batch_manifest, run_task_profile
 from pbgen.qc.qc_export import export_qc_queue
+from pbgen.released_package import release_task_package
 from pbgen.repo_discovery.checkout import init_task
 from pbgen.reporting.run_summary import write_run_summary
 from pbgen.schemas import (
+    CandidateSubmission,
     CoverageReport,
     QCQueueReport,
     RewardShapeReport,
@@ -33,6 +35,7 @@ from pbgen.schemas import (
 )
 from pbgen.serialization import read_data
 from pbgen.submission_export import create_submission_archive
+from pbgen.task_constructor import construct_task_profile
 from pbgen.task_profile import load_task_profile, resolve_profile_paths
 from pbgen.testgen.behavioral_surface import discover_behavior_surface
 from pbgen.testgen.controller import CoverageGuidedTestController
@@ -73,24 +76,48 @@ def main(argv: list[str] | None = None) -> int:
             suite, reward, _qc = evaluate_suite(args.task_id, config)
             print(f"Gold pass rate: {suite.gold_pass_rate:.3f}; final score: {reward.final_score:.3f}")
         elif args.command == "package-cleanroom":
-            package_result = package_cleanroom(args.task_id, config)
-            print(f"Packaged solver output: {package_result['solver']}")
+            manifest = release_task_package(args.task_id, config)
+            print(f"Packaged solver output: {manifest.solver_package}")
         elif args.command == "export-qc":
             paths = ArtifactPaths(config, args.task_id)
             qc_report = QCQueueReport.model_validate(read_data(paths.qc / "qc_queue.json"))
             csv_path, md_path = export_qc_queue(qc_report, paths.qc)
             print(f"Exported QC queue: {csv_path} and {md_path}")
         elif args.command == "benchmark-solution":
-            paths = ArtifactPaths(config, args.task_id)
-            benchmark_result = run_pytest_suite(
+            benchmark_result = evaluate_executable_candidate(
                 args.task_id,
-                paths.generated_tests,
+                config,
                 Path(args.submission),
             )
             print(f"Submission pass rate: {benchmark_result.pass_rate:.3f}")
         elif args.command == "write-summary":
             _summary, markdown_path = write_run_summary(args.task_id, config)
             print(f"Wrote run summary: {markdown_path}")
+        elif args.command == "construct-task":
+            profile_path = Path(args.profile)
+            profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
+            profile = _profile_with_generation_args(profile, args)
+            summary = construct_task_profile(
+                profile,
+                config,
+                task_id_override=args.task_id,
+                iterations_override=args.iterations,
+                build_system=args.build_system,
+            )
+            print(f"Constructed task {summary.task_id}; final score: {summary.final_score:.3f}")
+        elif args.command == "release-package":
+            manifest = release_task_package(args.task_id, config)
+            print(f"Released task package: {manifest.evaluator_package}")
+        elif args.command == "evaluate-submission":
+            report = evaluate_source_submission(
+                CandidateSubmission(
+                    package_path=Path(args.package),
+                    submission_source=Path(args.submission_source),
+                    build_script=Path(args.build_script),
+                ),
+                config,
+            )
+            print(f"Submission pass rate: {report.pass_rate:.3f}")
         elif args.command == "run-task":
             profile_path = Path(args.profile)
             profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
@@ -279,17 +306,19 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--task-id", required=True)
     bench.add_argument("--submission", required=True, help="Path to candidate executable")
 
+    construct = sub.add_parser("construct-task", help="Construct task artifacts without releasing packages")
+    _add_profile_run_args(construct)
+
+    release = sub.add_parser("release-package", help="Release solver/evaluator package from constructed artifacts")
+    release.add_argument("--task-id", required=True)
+
+    evaluate = sub.add_parser("evaluate-submission", help="Evaluate a source submission against a released package")
+    evaluate.add_argument("--package", required=True, help="Path to released evaluator package or manifest")
+    evaluate.add_argument("--submission-source", required=True, help="Candidate source tree")
+    evaluate.add_argument("--build-script", required=True, help="Candidate build script")
+
     run = sub.add_parser("run-task", help="Run the deterministic local pipeline from a task profile")
-    run.add_argument("--profile", required=True, help="Path to pbgen_task.yaml/json")
-    run.add_argument("--task-id", help="Override task id from the profile")
-    run.add_argument("--iterations", type=int, help="Override generation iteration count")
-    run.add_argument(
-        "--build-system",
-        default="auto",
-        choices=["auto", "script", "python-package", "make", "c-single", "cargo", "go", "cmake", "maven", "gradle"],
-        help="Build backend override for the selected profile",
-    )
-    _add_generation_backend_args(run)
+    _add_profile_run_args(run)
 
     batch = sub.add_parser("batch-run", help="Run several selected task profiles from a manifest")
     batch.add_argument("--manifest", required=True, help="Path to batch manifest YAML/JSON")
@@ -317,6 +346,30 @@ def _add_generation_backend_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--model-name", help="Optional model name metadata for configured model clients")
     parser.add_argument("--model-temperature", type=float, help="Optional model temperature metadata")
+
+
+def _add_profile_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--profile", required=True, help="Path to pbgen_task.yaml/json")
+    parser.add_argument("--task-id", help="Override task id from the profile")
+    parser.add_argument("--iterations", type=int, help="Override generation iteration count")
+    parser.add_argument(
+        "--build-system",
+        default="auto",
+        choices=[
+            "auto",
+            "script",
+            "python-package",
+            "make",
+            "c-single",
+            "cargo",
+            "go",
+            "cmake",
+            "maven",
+            "gradle",
+        ],
+        help="Build backend override for the selected profile",
+    )
+    _add_generation_backend_args(parser)
 
 
 if __name__ == "__main__":
