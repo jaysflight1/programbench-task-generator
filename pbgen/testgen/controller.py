@@ -11,6 +11,7 @@ from pbgen.logging.event_log import EventLogger
 from pbgen.qc.qc_queue import build_qc_queue
 from pbgen.quality.assertion_linter import AssertionQualityLinter
 from pbgen.quality.hard_gates import apply_hard_quality_gates
+from pbgen.quality.mutation_runner import MutationLiteRunner
 from pbgen.quality.redundancy import RedundancyAnalyzer
 from pbgen.schemas import BehaviorSurface, CoverageGap, TaskSpec
 from pbgen.serialization import read_data, write_data
@@ -189,6 +190,14 @@ class CoverageGuidedTestController:
             paths.event_log,
             iteration=iteration,
         )
+        mutation_report = MutationLiteRunner().run(
+            task_id,
+            paths.generated_tests,
+            paths.root / "mutations" / f"iteration_{iteration}",
+            paths.reports / f"mutation_lite_report_iteration_{iteration}.json",
+            paths.event_log,
+            iteration=iteration,
+        )
         qc_report = build_qc_queue(
             task_id,
             pre_filter_lint_report,
@@ -198,6 +207,8 @@ class CoverageGuidedTestController:
             iteration=iteration,
             per_test_deterministic=hard_gate_result.determinism_report.per_test_deterministic,
             per_test_dummy_passes=hard_gate_result.dummy_report.per_test_dummy_passes,
+            mutation_survival_rate=mutation_report.mutation_survival_rate,
+            per_test_mutation_survived=mutation_report.per_test_mutation_survived,
         )
         write_data(
             paths.qc / f"qc_queue_iteration_{iteration}.json",

@@ -11,6 +11,7 @@ from pbgen.schemas import (
     AssertionLintReport,
     CoverageReport,
     EfficiencyResult,
+    MutationLiteReport,
     QCQueueReport,
     RedundancyReport,
     RewardShapeReport,
@@ -35,6 +36,7 @@ def score_suite(
     dummy_pass_rate: float,
     redundancy_report: RedundancyReport,
     efficiency_result: EfficiencyResult,
+    mutation_report: MutationLiteReport | None = None,
     coverage_report: CoverageReport | None = None,
     reports_dir: Path,
     qc_dir: Path,
@@ -73,7 +75,19 @@ def score_suite(
         if not coverage_available:
             final_score = min(final_score, MISSING_COVERAGE_FINAL_SCORE_CAP)
 
-    qc_report = build_qc_queue(task_id, lint_report, deterministic_pass_rate, dummy_pass_rate, redundancy_report)
+    qc_report = build_qc_queue(
+        task_id,
+        lint_report,
+        deterministic_pass_rate,
+        dummy_pass_rate,
+        redundancy_report,
+        mutation_survival_rate=(
+            mutation_report.mutation_survival_rate if mutation_report else None
+        ),
+        per_test_mutation_survived=(
+            mutation_report.per_test_mutation_survived if mutation_report else None
+        ),
+    )
     qc_dir.mkdir(parents=True, exist_ok=True)
     suite_report = SuiteQualityReport(
         task_id=task_id,
@@ -106,6 +120,7 @@ def score_suite(
                 else MISSING_COVERAGE_NOTE
             ),
             "Economic-importance scoring is intentionally omitted from this implementation.",
+            _mutation_note(mutation_report),
         ],
     )
 
@@ -131,3 +146,13 @@ def _coverage_note(coverage_report: CoverageReport | None) -> str:
     if backend:
         return f"Coverage was measured with {backend} and included in the quality score."
     return "Coverage was measured and included in the quality score."
+
+
+def _mutation_note(mutation_report: MutationLiteReport | None) -> str:
+    if mutation_report is None:
+        return "Mutation-lite checks were not available for this suite."
+    return (
+        "Mutation-lite checks ran against "
+        f"{mutation_report.mutation_count} synthetic wrong executables; "
+        f"survival rate was {mutation_report.mutation_survival_rate:.3f}."
+    )

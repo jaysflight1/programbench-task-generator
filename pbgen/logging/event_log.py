@@ -27,6 +27,7 @@ EVENT_TYPES = {
     "test_repaired",
     "test_discarded",
     "dummy_check_run",
+    "mutation_lite_check_run",
     "determinism_check_run",
     "redundancy_cluster_assigned",
     "hard_quality_gate_applied",

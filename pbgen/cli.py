@@ -19,6 +19,7 @@ from pbgen.quality.assertion_linter import lint_and_log
 from pbgen.quality.dummy_runner import DummyBinaryRunner
 from pbgen.quality.gold_determinism import run_gold_determinism_details
 from pbgen.quality.hard_gates import apply_hard_quality_gates
+from pbgen.quality.mutation_runner import MutationLiteRunner
 from pbgen.quality.redundancy import RedundancyAnalyzer
 from pbgen.quality.suite_scorer import score_suite
 from pbgen.pipeline import run_batch_manifest, run_task_profile
@@ -209,6 +210,13 @@ def evaluate_suite(
         paths.reports / "redundancy_report.json",
         paths.event_log,
     )
+    mutation_report = MutationLiteRunner().run(
+        task_id,
+        paths.generated_tests,
+        paths.root / "mutations",
+        paths.reports / "mutation_lite_report.json",
+        paths.event_log,
+    )
     efficiency_result = score_efficiency(
         task_id,
         paths.executable,
@@ -227,6 +235,7 @@ def evaluate_suite(
         dummy_pass_rate=dummy_pass_rate,
         redundancy_report=redundancy_report,
         efficiency_result=efficiency_result,
+        mutation_report=mutation_report,
         coverage_report=_latest_coverage_report(paths.reports),
         reports_dir=paths.reports,
         qc_dir=paths.qc,

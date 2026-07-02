@@ -25,7 +25,7 @@ For each task profile, the pipeline can produce:
 - Structured per-test outcomes with test name, file, duration, output snippets, and
   failure reason.
 - Iteration reports for coverage, assertion linting, determinism, dummy rejection,
-  redundancy, suite quality, reward shape, and efficiency.
+  mutation-lite rejection, redundancy, suite quality, reward shape, and efficiency.
 - `qc_queue.md`, `qc_queue.json`, and `qc_queue.csv` for human review.
 - `RUN_SUMMARY.md` and `reports/RUN_SUMMARY.json` for a concise explanation of what
   happened and what remains weak.
@@ -209,7 +209,9 @@ artifacts/<task_id>/
   reports/
     coverage_report_iteration_0.json
     lint_report_iteration_0.json
+    mutation_lite_report_iteration_0.json
     redundancy_report_iteration_0.json
+    mutation_lite_report.json
     suite_quality_report.json
     reward_shape_report.json
     efficiency_manifest.json

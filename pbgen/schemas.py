@@ -355,6 +355,16 @@ class DummyRunReport(PBModel):
     per_test_dummy_passes: dict[str, bool] = Field(default_factory=dict)
 
 
+class MutationLiteReport(PBModel):
+    """Mutation-lite rejection result for synthetic wrong executables."""
+
+    task_id: str
+    mutation_count: int
+    mutation_survival_rate: float
+    mutation_pass_rates: dict[str, float] = Field(default_factory=dict)
+    per_test_mutation_survived: dict[str, bool] = Field(default_factory=dict)
+
+
 class HardGateRejectedTest(PBModel):
     """One test rejected by hard quality gates."""
 
