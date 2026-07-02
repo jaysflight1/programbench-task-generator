@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pbgen.config import ArtifactPaths, PBGenConfig
-from pbgen.coverage.coverage_runner import run_python_coverage
+from pbgen.coverage.adapters import coverage_unavailable_report
+from pbgen.coverage.coverage_runner import run_c_family_coverage, run_python_coverage
 from pbgen.errors import CoverageError
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
@@ -70,18 +71,39 @@ class CoverageGuidedTestController:
             result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             self._run_iteration_quality_gates(task_id, iteration, paths, logger)
             coverage_report = None
-            if self.config.coverage_enabled and spec.language == "python":
+            if self.config.coverage_enabled and _coverage_supported_by_current_adapter(spec):
                 try:
-                    coverage_report = run_python_coverage(
-                        task_id,
-                        paths.generated_tests,
-                        paths.executable,
-                        iteration=iteration,
-                        source_roots=[paths.repo, paths.gold],
-                        work_dir=paths.reports / f"coverage_iteration_{iteration}",
-                        timeout_seconds=120,
-                    )
+                    if spec.language == "python":
+                        coverage_report = run_python_coverage(
+                            task_id,
+                            paths.generated_tests,
+                            paths.executable,
+                            iteration=iteration,
+                            source_roots=[paths.repo, paths.gold],
+                            work_dir=paths.reports / f"coverage_iteration_{iteration}",
+                            timeout_seconds=120,
+                        )
+                    else:
+                        coverage_report = run_c_family_coverage(
+                            spec,
+                            paths.repo,
+                            paths.generated_tests,
+                            iteration=iteration,
+                            work_dir=paths.reports / f"coverage_iteration_{iteration}",
+                            config=self.config,
+                        )
                 except CoverageError as exc:
+                    backend_name = "python-coverage.py" if spec.language == "python" else "c-family-gcov"
+                    coverage_report = coverage_unavailable_report(
+                        task_id,
+                        iteration,
+                        backend_name,
+                        str(exc),
+                    )
+                    write_data(
+                        paths.reports / f"coverage_unavailable_report_iteration_{iteration}.json",
+                        coverage_report.model_dump(mode="json"),
+                    )
                     logger.append(
                         task_id=task_id,
                         stage="coverage",
@@ -95,6 +117,11 @@ class CoverageGuidedTestController:
                         paths.reports / f"coverage_report_iteration_{iteration}.json",
                         coverage_report.model_dump(mode="json"),
                     )
+                    if not coverage_report.coverage_available:
+                        write_data(
+                            paths.reports / f"coverage_unavailable_report_iteration_{iteration}.json",
+                            coverage_report.model_dump(mode="json"),
+                        )
                     logger.append(
                         task_id=task_id,
                         stage="coverage",
@@ -193,3 +220,13 @@ class CoverageGuidedTestController:
                 metrics=item.model_dump(mode="json"),
                 qc_flags=[item.queue],
             )
+
+
+def _coverage_supported_by_current_adapter(spec: TaskSpec) -> bool:
+    language = (spec.language or "").lower()
+    build_system = (spec.build_system or "").lower()
+    return language == "python" or language in {"c", "c++", "cpp", "c/c++"} or build_system in {
+        "make",
+        "cmake",
+        "c-single",
+    }

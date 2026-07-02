@@ -320,6 +320,20 @@ def _rank_build_candidates(
             )
         )
 
+    single_c_source = _single_c_family_source(repo_path, files)
+    if single_c_source is not None:
+        language = "c++" if single_c_source.suffix.lower() in {".cpp", ".cc", ".cxx"} else "c"
+        candidates.append(
+            BuildCandidate(
+                build_system="c-single",
+                language=language,
+                confidence=0.76,
+                commands=((_single_source_compiler_name(language), _rel(repo_path, single_c_source)),),
+                output_hints=(single_c_source.stem,),
+                entrypoint_paths=(_rel(repo_path, single_c_source),),
+            )
+        )
+
     executable_entrypoints = tuple(
         candidate.path
         for candidate in entrypoints
@@ -643,6 +657,23 @@ def _parse_make_output_hints(makefile: Path) -> list[str]:
                 continue
             hints.append(target)
     return sorted(dict.fromkeys(hints))
+
+
+def _single_c_family_source(repo_path: Path, files: list[Path]) -> Path | None:
+    candidates = [
+        path
+        for path in files
+        if path.suffix.lower() in {".c", ".cpp", ".cc", ".cxx"}
+    ]
+    if len(candidates) != 1:
+        return None
+    if any((repo_path / manifest).exists() for manifest in MAKEFILE_NAMES | {"CMakeLists.txt"}):
+        return None
+    return candidates[0]
+
+
+def _single_source_compiler_name(language: str) -> str:
+    return "c++" if language == "c++" else "cc"
 
 
 def _infer_make_language(files: list[Path]) -> str | None:

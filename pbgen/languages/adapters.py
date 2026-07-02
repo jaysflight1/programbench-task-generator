@@ -123,7 +123,7 @@ class CLanguageAdapter(LanguageAdapter):
 
     name = "c-cpp"
     languages = frozenset({"c", "cpp", "c++", "c/c++", "make"})
-    build_systems = frozenset({"make", "c-single"})
+    build_systems = frozenset({"make", "cmake", "c-single"})
 
     def capability_report(
         self,
@@ -133,21 +133,17 @@ class CLanguageAdapter(LanguageAdapter):
     ) -> LanguageCapabilityReport:
         normalized_build = _normalize_build_system(build_system)
         build_supported = normalized_build in self.build_systems if normalized_build else True
-        warnings: list[str] = []
-        if normalized_build == "cmake":
-            warnings.append("CMake build support is planned for the compiled-language phase.")
         return LanguageCapabilityReport(
             language=language,
             build_system=build_system,
             adapter_name=self.name,
             supported=build_supported,
             build_supported=build_supported,
-            coverage_supported=False,
+            coverage_supported=True,
             behavior_probe_supported=True,
             test_rendering_supported=True,
             package_runtime="native executable",
             reason=None if build_supported else f"Build system is not supported yet: {build_system}",
-            warnings=warnings,
         )
 
     def build_backend(

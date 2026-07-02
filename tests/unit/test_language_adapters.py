@@ -41,7 +41,7 @@ def test_registry_selects_c_adapter_for_make() -> None:
     assert isinstance(adapter, CLanguageAdapter)
     assert report.supported is True
     assert report.build_supported is True
-    assert report.coverage_supported is False
+    assert report.coverage_supported is True
     assert report.package_runtime == "native executable"
 
 

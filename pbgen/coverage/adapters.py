@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import stat
 import sys
 import tempfile
@@ -15,7 +17,8 @@ from typing import Any
 import uuid
 
 from pbgen.errors import CoverageError
-from pbgen.schemas import CoverageGap, CoverageReport
+from pbgen.eval.executable_runner import run_canonical_suites_from_path
+from pbgen.schemas import CoverageGap, CoverageReport, TaskSpec
 from pbgen.subprocess_utils import CommandResult, run_command
 
 
@@ -49,6 +52,15 @@ class PlaceholderCoverageAdapter(CoverageAdapter):
 
     def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
         return report.gaps
+
+
+@dataclass(frozen=True)
+class CFamilyCoverageBuild:
+    """Instrumented native executable and copied source tree."""
+
+    executable_path: Path
+    repo_path: Path
+    build_dir: Path | None
 
 
 @dataclass(frozen=True)
@@ -175,6 +187,206 @@ class PythonCoverageAdapter(CoverageAdapter):
         return sorted(report.gaps, key=lambda gap: gap.priority, reverse=True)
 
 
+class CFamilyCoverageAdapter(CoverageAdapter):
+    """Collect native C/C++ line coverage with compiler coverage flags and gcov."""
+
+    def __init__(
+        self,
+        spec: TaskSpec,
+        *,
+        task_id: str | None = None,
+        iteration: int = 0,
+        work_dir: Path | None = None,
+        gcov_executable: str = "gcov",
+        timeout_seconds: int = 120,
+    ) -> None:
+        self.spec = spec
+        self.task_id = task_id or spec.task_id
+        self.iteration = iteration
+        self.work_dir = work_dir
+        self.gcov_executable = gcov_executable
+        self.timeout_seconds = timeout_seconds
+        self._instrumented: CFamilyCoverageBuild | None = None
+
+    def instrument_build(self, repo_path: Path) -> Path:
+        """Build an instrumented native executable in a copied work tree."""
+
+        work_dir = (self.work_dir or Path(tempfile.mkdtemp(prefix="pbgen-cov-"))).resolve()
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        instrumented_repo = work_dir / "repo"
+        shutil.copytree(
+            repo_path,
+            instrumented_repo,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv", "build"),
+        )
+        build_system = self.spec.build_system or _first_build_system(self.spec)
+        if build_system == "cmake":
+            build = self._build_cmake(instrumented_repo)
+        elif build_system == "c-single":
+            build = self._build_single_source(instrumented_repo)
+        else:
+            build = self._build_make(instrumented_repo)
+        self._instrumented = build
+        return build.executable_path
+
+    def run_tests_with_coverage(self, tests_path: Path, executable_path: Path) -> CoverageReport:
+        """Run canonical tests against the instrumented executable and parse gcov output."""
+
+        if self._instrumented is None:
+            self._instrumented = CFamilyCoverageBuild(
+                executable_path=executable_path,
+                repo_path=executable_path.parent,
+                build_dir=None,
+            )
+        if shutil.which(self.gcov_executable) is None:
+            return coverage_unavailable_report(
+                self.task_id,
+                self.iteration,
+                "c-family-gcov",
+                f"{self.gcov_executable} is not available",
+            )
+        result = run_canonical_suites_from_path(self.task_id, tests_path, executable_path)
+        if result is None:
+            return coverage_unavailable_report(
+                self.task_id,
+                self.iteration,
+                "c-family-gcov",
+                "no canonical executable test cases were found",
+            )
+        if result.exit_status != 0:
+            raise CoverageError("instrumented C/C++ executable failed generated tests")
+        return self._parse_gcov_report(self._instrumented)
+
+    def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
+        return sorted(report.gaps, key=lambda gap: gap.priority, reverse=True)
+
+    def _build_make(self, repo_path: Path) -> CFamilyCoverageBuild:
+        run_command(["make", "clean"], cwd=repo_path, timeout_seconds=min(self.timeout_seconds, 60))
+        result = run_command(
+            [
+                "make",
+                "CFLAGS=--coverage -O0 -g",
+                "CXXFLAGS=--coverage -O0 -g",
+                "LDFLAGS=--coverage",
+            ],
+            cwd=repo_path,
+            timeout_seconds=self.timeout_seconds,
+        )
+        if not result.ok:
+            raise CoverageError(_format_command_failure("coverage make build failed", result))
+        return CFamilyCoverageBuild(
+            executable_path=_select_native_executable(repo_path),
+            repo_path=repo_path,
+            build_dir=None,
+        )
+
+    def _build_cmake(self, repo_path: Path) -> CFamilyCoverageBuild:
+        if shutil.which("cmake") is None:
+            raise CoverageError("cmake is not available for coverage build")
+        build_dir = repo_path / "build"
+        configure = run_command(
+            [
+                "cmake",
+                "-S",
+                ".",
+                "-B",
+                "build",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_C_FLAGS=--coverage -O0 -g",
+                "-DCMAKE_CXX_FLAGS=--coverage -O0 -g",
+                "-DCMAKE_EXE_LINKER_FLAGS=--coverage",
+            ],
+            cwd=repo_path,
+            timeout_seconds=self.timeout_seconds,
+        )
+        if not configure.ok:
+            raise CoverageError(_format_command_failure("coverage cmake configure failed", configure))
+        build = run_command(
+            ["cmake", "--build", "build"],
+            cwd=repo_path,
+            timeout_seconds=self.timeout_seconds,
+        )
+        if not build.ok:
+            raise CoverageError(_format_command_failure("coverage cmake build failed", build))
+        return CFamilyCoverageBuild(
+            executable_path=_select_native_executable(build_dir),
+            repo_path=repo_path,
+            build_dir=build_dir,
+        )
+
+    def _build_single_source(self, repo_path: Path) -> CFamilyCoverageBuild:
+        source_rel = self.spec.build_candidates[0].entrypoint_paths[0] if self.spec.build_candidates else ""
+        if not source_rel:
+            raise CoverageError("single-source coverage build has no source file")
+        compiler = _coverage_compiler_for_path(Path(source_rel))
+        if compiler is None:
+            raise CoverageError("no C/C++ compiler is available for coverage build")
+        executable = repo_path / Path(source_rel).stem
+        result = run_command(
+            [compiler, "--coverage", "-O0", "-g", source_rel, "-o", str(executable)],
+            cwd=repo_path,
+            timeout_seconds=self.timeout_seconds,
+        )
+        if not result.ok:
+            raise CoverageError(_format_command_failure("coverage single-source build failed", result))
+        return CFamilyCoverageBuild(executable_path=executable, repo_path=repo_path, build_dir=None)
+
+    def _parse_gcov_report(self, build: CFamilyCoverageBuild) -> CoverageReport:
+        output_dir = build.repo_path / ".pbgen-gcov"
+        output_dir.mkdir(exist_ok=True)
+        source_files = _c_family_sources(build.repo_path)
+        if not source_files:
+            return coverage_unavailable_report(
+                self.task_id,
+                self.iteration,
+                "c-family-gcov",
+                "no C/C++ source files were found",
+            )
+        summaries: list[tuple[Path, float, int, list[CoverageGap], list[dict[str, object]]]] = []
+        for source in source_files:
+            gcov_result = _run_gcov_for_source(
+                self.gcov_executable,
+                source,
+                build.repo_path,
+                build.build_dir,
+                output_dir,
+                self.timeout_seconds,
+            )
+            if gcov_result is None:
+                continue
+            line_percent, executable_lines = _parse_gcov_stdout(gcov_result.stdout)
+            gcov_file = output_dir / f"{source.name}.gcov"
+            gaps, ranges = _parse_gcov_missing_ranges(gcov_file, build.repo_path)
+            summaries.append((source, line_percent, executable_lines, gaps, ranges))
+        if not summaries:
+            return coverage_unavailable_report(
+                self.task_id,
+                self.iteration,
+                "c-family-gcov",
+                "gcov did not produce parseable source reports",
+            )
+        total_lines = sum(executable_lines for _, _, executable_lines, _, _ in summaries)
+        weighted = sum(
+            line_percent * executable_lines
+            for _, line_percent, executable_lines, _, _ in summaries
+        )
+        all_gaps = [gap for _, _, _, gaps, _ in summaries for gap in gaps]
+        all_ranges = [item for _, _, _, _, ranges in summaries for item in ranges]
+        uncovered_files = sorted({gap.file_path for gap in all_gaps})
+        return CoverageReport(
+            task_id=self.task_id,
+            iteration=self.iteration,
+            coverage_backend="c-family-gcov",
+            coverage_available=True,
+            line_coverage=(weighted / total_lines / 100.0) if total_lines else None,
+            uncovered_files=uncovered_files,
+            uncovered_line_ranges=all_ranges,
+            gaps=sorted(all_gaps, key=lambda gap: gap.priority, reverse=True),
+        )
+
+
 def run_python_coverage(
     task_id: str,
     tests_path: Path,
@@ -195,6 +407,24 @@ def run_python_coverage(
         timeout_seconds=timeout_seconds,
     )
     return adapter.run_tests_with_coverage(tests_path, executable_path)
+
+
+def coverage_unavailable_report(
+    task_id: str,
+    iteration: int,
+    backend: str,
+    reason: str,
+) -> CoverageReport:
+    """Return an honest report for unavailable coverage tooling/capability."""
+
+    return CoverageReport(
+        task_id=task_id,
+        iteration=iteration,
+        coverage_backend=backend,
+        coverage_available=False,
+        coverage_unavailable_reason=reason,
+        line_coverage=None,
+    )
 
 
 def create_coverage_wrapper(
@@ -320,6 +550,8 @@ def coverage_report_from_json(
     return CoverageReport(
         task_id=task_id,
         iteration=iteration,
+        coverage_backend="python-coverage.py",
+        coverage_available=True,
         line_coverage=line_coverage,
         branch_coverage=branch_coverage,
         function_coverage=function_coverage,
@@ -328,6 +560,151 @@ def coverage_report_from_json(
         uncovered_line_ranges=uncovered_line_ranges,
         gaps=gaps,
     )
+
+
+def _first_build_system(spec: TaskSpec) -> str | None:
+    return spec.build_candidates[0].build_system if spec.build_candidates else None
+
+
+def _select_native_executable(root: Path) -> Path:
+    outputs = [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and path.stat().st_mode & stat.S_IXUSR
+        and not _has_ignored_native_part(path.relative_to(root))
+        and path.suffix.lower() not in {".o", ".a", ".so", ".dylib", ".gcno", ".gcda"}
+    ]
+    if not outputs:
+        raise CoverageError(f"No native executable produced under {root}")
+    return sorted(outputs, key=lambda path: (len(path.relative_to(root).parts), path.name))[0]
+
+
+def _has_ignored_native_part(path: Path) -> bool:
+    return any(part in {".git", ".pbgen-gcov", "CMakeFiles"} for part in path.parts)
+
+
+def _coverage_compiler_for_path(path: Path) -> str | None:
+    if path.suffix.lower() in {".cpp", ".cc", ".cxx"}:
+        for compiler in ("c++", "clang++", "g++"):
+            if shutil.which(compiler):
+                return compiler
+        return None
+    for compiler in ("cc", "clang", "gcc"):
+        if shutil.which(compiler):
+            return compiler
+    return None
+
+
+def _c_family_sources(repo_path: Path) -> list[Path]:
+    return [
+        path
+        for path in sorted(repo_path.rglob("*"))
+        if path.is_file()
+        and path.suffix.lower() in {".c", ".cpp", ".cc", ".cxx"}
+        and not any(part in {"build", ".git", ".pbgen-gcov"} for part in path.relative_to(repo_path).parts)
+    ]
+
+
+def _run_gcov_for_source(
+    gcov_executable: str,
+    source: Path,
+    repo_path: Path,
+    build_dir: Path | None,
+    output_dir: Path,
+    timeout_seconds: int,
+) -> CommandResult | None:
+    object_dirs = [repo_path]
+    if build_dir is not None:
+        object_dirs.extend([build_dir, *sorted(path for path in build_dir.rglob("*") if path.is_dir())])
+    seen: set[Path] = set()
+    for object_dir in object_dirs:
+        if object_dir in seen:
+            continue
+        seen.add(object_dir)
+        result = run_command(
+            [
+                gcov_executable,
+                "-b",
+                "-o",
+                str(object_dir),
+                str(source),
+            ],
+            cwd=output_dir,
+            timeout_seconds=timeout_seconds,
+        )
+        if result.ok and "Lines executed:" in result.stdout:
+            return result
+    return None
+
+
+def _parse_gcov_stdout(stdout: str) -> tuple[float, int]:
+    percent_match = re.search(r"Lines executed:([0-9.]+)% of ([0-9]+)", stdout)
+    if percent_match is None:
+        return 0.0, 0
+    return float(percent_match.group(1)), int(percent_match.group(2))
+
+
+def _parse_gcov_missing_ranges(
+    gcov_file: Path,
+    repo_path: Path,
+) -> tuple[list[CoverageGap], list[dict[str, object]]]:
+    if not gcov_file.exists():
+        return [], []
+    missing_lines: list[int] = []
+    source_file = gcov_file.stem
+    for line in gcov_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        count, line_number_text, source_text = (part.strip() for part in parts)
+        if count not in {"#####", "====="}:
+            continue
+        if not source_text or source_text.startswith(("{", "}", "/*", "*")):
+            continue
+        try:
+            missing_lines.append(int(line_number_text))
+        except ValueError:
+            continue
+    ranges: list[dict[str, object]] = []
+    gaps: list[CoverageGap] = []
+    for start, end in _collapse_ranges(missing_lines):
+        missing_count = end - start + 1
+        ranges.append(
+            {
+                "file_path": source_file,
+                "start_line": start,
+                "end_line": end,
+                "function_name": None,
+                "missing_lines": missing_count,
+            }
+        )
+        gaps.append(
+            CoverageGap(
+                file_path=_display_file_path(source_file, [repo_path]),
+                start_line=start,
+                end_line=end,
+                reason=f"{missing_count} uncovered native line(s)",
+                priority=min(1.0, 0.25 + (float(missing_count) / 20.0)),
+            )
+        )
+    return gaps, ranges
+
+
+def _collapse_ranges(lines: list[int]) -> list[tuple[int, int]]:
+    if not lines:
+        return []
+    sorted_lines = sorted(set(lines))
+    ranges: list[tuple[int, int]] = []
+    start = previous = sorted_lines[0]
+    for line in sorted_lines[1:]:
+        if line == previous + 1:
+            previous = line
+            continue
+        ranges.append((start, previous))
+        start = previous = line
+    ranges.append((start, previous))
+    return ranges
 
 
 def _render_wrapper_script(

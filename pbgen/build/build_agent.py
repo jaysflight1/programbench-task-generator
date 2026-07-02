@@ -81,7 +81,9 @@ class LocalBuildBackend(BuildBackend):
                 elif candidate.build_system == "python-package":
                     built = self._build_python_package(spec, repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "make":
-                    built = self._build_make(repo_path, all_exe_dir, attempts)
+                    built = self._build_make(candidate, repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "cmake":
+                    built = self._build_cmake(repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "c-single":
                     built = self._build_c_single(candidate, repo_path, all_exe_dir, attempts)
                 else:
@@ -244,10 +246,12 @@ class LocalBuildBackend(BuildBackend):
 
     def _build_make(
         self,
+        candidate: BuildCandidate,
         repo_path: Path,
         output_dir: Path,
         attempts: list[dict[str, object]],
     ) -> dict[str, Path]:
+        _run_make_clean(repo_path, min(self.build_timeout_seconds, 60), attempts)
         before = _executable_snapshot(repo_path)
         try:
             result = run_command(
@@ -282,7 +286,8 @@ class LocalBuildBackend(BuildBackend):
                 }
             )
             raise BuildError("make failed")
-        outputs = created or _discover_existing_executables(repo_path)
+        hinted = _paths_from_hints(repo_path, candidate.output_hints)
+        outputs = hinted or created or _discover_existing_executables(repo_path)
         built: dict[str, Path] = {}
         for source in outputs:
             name = _safe_executable_name(source.stem)
@@ -303,6 +308,55 @@ class LocalBuildBackend(BuildBackend):
         )
         return built
 
+    def _build_cmake(
+        self,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        if shutil.which("cmake") is None:
+            raise BuildError("cmake is not available for CMake build.")
+        build_dir = repo_path / "build"
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        configure = run_command(
+            ["cmake", "-S", ".", "-B", "build"],
+            cwd=repo_path,
+            timeout_seconds=min(self.build_timeout_seconds, 180),
+        )
+        build = (
+            run_command(
+                ["cmake", "--build", "build"],
+                cwd=repo_path,
+                timeout_seconds=self.build_timeout_seconds,
+            )
+            if configure.ok
+            else None
+        )
+        attempts.append(
+            {
+                "build_system": "cmake",
+                "commands": [["cmake", "-S", ".", "-B", "build"], ["cmake", "--build", "build"]],
+                "status": "succeeded" if configure.ok and build and build.ok else "failed",
+                "configure_exit_code": configure.returncode,
+                "build_exit_code": build.returncode if build else None,
+                "stdout": ((configure.stdout + "\n" + (build.stdout if build else ""))[-2000:]),
+                "stderr": ((configure.stderr + "\n" + (build.stderr if build else ""))[-2000:]),
+            }
+        )
+        if not configure.ok or not build or not build.ok:
+            raise BuildError("cmake build failed")
+        outputs = _discover_existing_executables(build_dir)
+        built: dict[str, Path] = {}
+        for source in outputs:
+            name = _safe_executable_name(source.stem)
+            destination = output_dir / name
+            shutil.copy2(source, destination)
+            destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
+            built[name] = destination
+        attempts[-1]["outputs"] = {name: path.as_posix() for name, path in built.items()}
+        return built
+
     def _build_c_single(
         self,
         candidate: BuildCandidate,
@@ -310,22 +364,23 @@ class LocalBuildBackend(BuildBackend):
         output_dir: Path,
         attempts: list[dict[str, object]],
     ) -> dict[str, Path]:
-        if shutil.which("gcc") is None:
-            raise BuildError("gcc is not available for c-single build.")
+        compiler = _compiler_for_single_source(candidate)
+        if compiler is None:
+            raise BuildError("No C/C++ compiler is available for c-single build.")
         source_rel = candidate.entrypoint_paths[0] if candidate.entrypoint_paths else ""
         source = repo_path / source_rel
         if not source.exists():
             raise BuildError("No C source file found for c-single build.")
         destination = output_dir / _safe_executable_name(source.stem)
         result = run_command(
-            ["gcc", source_rel, "-o", str(destination)],
+            [compiler, source_rel, "-o", str(destination)],
             cwd=repo_path,
             timeout_seconds=min(self.build_timeout_seconds, 120),
         )
         attempts.append(
             {
                 "build_system": "c-single",
-                "command": ["gcc", source_rel, "-o", str(destination)],
+                "command": [compiler, source_rel, "-o", str(destination)],
                 "status": "succeeded" if result.ok else "failed",
                 "exit_code": result.returncode,
                 "stdout": result.stdout[-2000:],
@@ -428,6 +483,47 @@ def build_gold(
 def _safe_executable_name(name: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in name)
     return cleaned or "program"
+
+
+def _run_make_clean(
+    repo_path: Path,
+    timeout_seconds: int,
+    attempts: list[dict[str, object]],
+) -> None:
+    result = run_command(["make", "clean"], cwd=repo_path, timeout_seconds=timeout_seconds)
+    attempts.append(
+        {
+            "build_system": "make",
+            "command": ["make", "clean"],
+            "status": "succeeded" if result.ok else "skipped",
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-1000:],
+            "stderr": result.stderr[-1000:],
+        }
+    )
+
+
+def _paths_from_hints(repo_path: Path, hints: list[str]) -> list[Path]:
+    paths: list[Path] = []
+    for hint in hints:
+        path = repo_path / hint
+        if path.exists() and path.is_file() and path.stat().st_mode & stat.S_IXUSR:
+            paths.append(path)
+    return sorted(paths)
+
+
+def _compiler_for_single_source(candidate: BuildCandidate) -> str | None:
+    source_rel = candidate.entrypoint_paths[0] if candidate.entrypoint_paths else ""
+    suffix = Path(source_rel).suffix.lower()
+    if suffix in {".cpp", ".cc", ".cxx"}:
+        for compiler in ("c++", "clang++", "g++"):
+            if shutil.which(compiler):
+                return compiler
+        return None
+    for compiler in ("cc", "clang", "gcc"):
+        if shutil.which(compiler):
+            return compiler
+    return None
 
 
 def _module_name_from_main(path: Path) -> str | None:

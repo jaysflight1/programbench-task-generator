@@ -32,3 +32,23 @@ def test_make_analysis_reports_manifest_and_output_hint() -> None:
     assert analysis.build_candidates[0].output_hints == ("calc",)
     assert "no executable entrypoint detected" in analysis.metadata_warnings
 
+
+def test_cmake_analysis_reports_manifest_candidate() -> None:
+    analysis = analyze_repository(FIXTURES / "cmake_c")
+
+    assert analysis.primary_language == "c/c++"
+    assert analysis.primary_build_system == "cmake"
+    assert analysis.dependency_manifest_paths == ["CMakeLists.txt"]
+    assert analysis.build_candidates[0].commands == (
+        ("cmake", "-S", ".", "-B", "build"),
+        ("cmake", "--build", "build"),
+    )
+
+
+def test_single_c_source_analysis_reports_compiler_fallback() -> None:
+    analysis = analyze_repository(FIXTURES / "c_single")
+
+    assert analysis.primary_language == "c"
+    assert analysis.primary_build_system == "c-single"
+    assert analysis.build_candidates[0].entrypoint_paths == ("tool.c",)
+    assert analysis.build_candidates[0].output_hints == ("tool",)

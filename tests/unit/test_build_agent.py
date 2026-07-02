@@ -57,6 +57,36 @@ def test_make_multiple_outputs_selects_deterministic_primary(tmp_path: Path) -> 
     assert result.stdout.strip() == "alpha"
 
 
+def test_cmake_c_build_discovers_executable(tmp_path: Path) -> None:
+    if shutil.which("cmake") is None or shutil.which("cc") is None:
+        pytest.skip("cmake and cc are required for this fixture")
+    config = PBGenConfig(workspace_root=tmp_path)
+    init_task(task_id="cmake-c", config=config, local_path=FIXTURES / "cmake_c")
+
+    artifact = build_gold("cmake-c", config)
+    result = run_command([str(artifact.executable_path), "add", "4", "6"], timeout_seconds=10)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "10"
+    assert artifact.build_attempts[0]["build_system"] == "cmake"
+    assert "cmake_calc" in artifact.executable_paths
+
+
+def test_single_c_source_builds_with_compiler_fallback(tmp_path: Path) -> None:
+    if not any(shutil.which(compiler) for compiler in ("cc", "clang", "gcc")):
+        pytest.skip("a C compiler is required for this fixture")
+    config = PBGenConfig(workspace_root=tmp_path)
+    init_task(task_id="c-single", config=config, local_path=FIXTURES / "c_single")
+
+    artifact = build_gold("c-single", config)
+    result = run_command([str(artifact.executable_path), "mul", "3", "5"], timeout_seconds=10)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "15"
+    assert artifact.build_attempts[0]["build_system"] == "c-single"
+    assert "tool" in artifact.executable_paths
+
+
 def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     if shutil.which("make") is None:
         pytest.skip("make is required for this fixture")
@@ -69,4 +99,3 @@ def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     build_log = tmp_path / "artifacts" / "make-fail" / "gold" / "build.log"
     assert build_log.exists()
     assert "intentional failure from robust fixture" in build_log.read_text(encoding="utf-8")
-

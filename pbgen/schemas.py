@@ -236,6 +236,9 @@ class CoverageGap(PBModel):
 class CoverageReport(PBModel):
     task_id: str
     iteration: int
+    coverage_backend: str | None = None
+    coverage_available: bool = True
+    coverage_unavailable_reason: str | None = None
     line_coverage: float | None = None
     branch_coverage: float | None = None
     function_coverage: float | None = None
