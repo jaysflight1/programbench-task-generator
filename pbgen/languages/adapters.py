@@ -1,0 +1,271 @@
+"""Language adapter interfaces and registry.
+
+The adapters here describe what the current implementation can safely do for a
+language/build-system pair. They intentionally delegate to the existing local
+builder until the later compiled-language phases harden those paths.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+from pbgen.config import PBGenConfig
+from pbgen.errors import BuildError
+from pbgen.schemas import LanguageCapabilityReport, TaskSpec
+
+if TYPE_CHECKING:
+    from pbgen.build.build_agent import BuildBackend
+
+
+def _normalize(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip().lower() or None
+
+
+def _normalize_build_system(value: str | None) -> str | None:
+    normalized = _normalize(value)
+    return None if normalized == "auto" else normalized
+
+
+class LanguageAdapter(ABC):
+    """Build, probe, coverage, and rendering capabilities for one language family."""
+
+    name: str
+    languages: frozenset[str]
+    build_systems: frozenset[str]
+
+    def matches(self, language: str | None, build_system: str | None) -> bool:
+        normalized_language = _normalize(language)
+        normalized_build = _normalize_build_system(build_system)
+        language_matches = normalized_language in self.languages if normalized_language else False
+        build_matches = normalized_build in self.build_systems if normalized_build else False
+        return language_matches or build_matches
+
+    @abstractmethod
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        """Return a structured report for the requested capability pair."""
+
+    @abstractmethod
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        """Return a build backend appropriate for this adapter."""
+
+
+class PythonLanguageAdapter(LanguageAdapter):
+    """Python package and script adapter."""
+
+    name = "python"
+    languages = frozenset({"python"})
+    build_systems = frozenset(
+        {
+            "script",
+            "python-script",
+            "python-package",
+            "project",
+            "requirements",
+            "setuptools",
+            "dependency-lock",
+        }
+    )
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        normalized_build = _normalize_build_system(build_system)
+        build_supported = normalized_build in self.build_systems if normalized_build else True
+        return LanguageCapabilityReport(
+            language=language,
+            build_system=build_system,
+            adapter_name=self.name,
+            supported=build_supported,
+            build_supported=build_supported,
+            coverage_supported=True,
+            behavior_probe_supported=True,
+            test_rendering_supported=True,
+            package_runtime="python3",
+            reason=None if build_supported else f"Build system is not supported yet: {build_system}",
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        report = self.capability_report(language=None, build_system=build_system_override)
+        if not report.build_supported:
+            raise BuildError(report.reason or "Python adapter cannot build this task.")
+        from pbgen.build.build_agent import LocalBuildBackend
+
+        return LocalBuildBackend(
+            build_system_override=build_system_override,
+            build_timeout_seconds=config.build_timeout_seconds,
+            probe_timeout_seconds=config.probe_timeout_seconds,
+        )
+
+
+class CLanguageAdapter(LanguageAdapter):
+    """C/C++ adapter for the current Make and single-file C build paths."""
+
+    name = "c-cpp"
+    languages = frozenset({"c", "cpp", "c++", "c/c++", "make"})
+    build_systems = frozenset({"make", "c-single"})
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        normalized_build = _normalize_build_system(build_system)
+        build_supported = normalized_build in self.build_systems if normalized_build else True
+        warnings: list[str] = []
+        if normalized_build == "cmake":
+            warnings.append("CMake build support is planned for the compiled-language phase.")
+        return LanguageCapabilityReport(
+            language=language,
+            build_system=build_system,
+            adapter_name=self.name,
+            supported=build_supported,
+            build_supported=build_supported,
+            coverage_supported=False,
+            behavior_probe_supported=True,
+            test_rendering_supported=True,
+            package_runtime="native executable",
+            reason=None if build_supported else f"Build system is not supported yet: {build_system}",
+            warnings=warnings,
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        report = self.capability_report(language=None, build_system=build_system_override)
+        if not report.build_supported:
+            raise BuildError(report.reason or "C/C++ adapter cannot build this task.")
+        from pbgen.build.build_agent import LocalBuildBackend
+
+        return LocalBuildBackend(
+            build_system_override=build_system_override,
+            build_timeout_seconds=config.build_timeout_seconds,
+            probe_timeout_seconds=config.probe_timeout_seconds,
+        )
+
+
+class UnsupportedLanguageAdapter(LanguageAdapter):
+    """Explicit unsupported-language adapter used for diagnostics."""
+
+    name = "unsupported"
+    languages = frozenset[str]()
+    build_systems = frozenset[str]()
+
+    def __init__(self, reason: str | None = None) -> None:
+        self._reason = reason or "No language adapter supports this language/build-system pair."
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        return LanguageCapabilityReport(
+            language=language,
+            build_system=build_system,
+            adapter_name=self.name,
+            supported=False,
+            build_supported=False,
+            coverage_supported=False,
+            behavior_probe_supported=False,
+            test_rendering_supported=False,
+            reason=self._reason,
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        del config, build_system_override
+        raise BuildError(self._reason)
+
+
+class LanguageAdapterRegistry:
+    """Deterministic language adapter selection."""
+
+    def __init__(self, adapters: list[LanguageAdapter] | None = None) -> None:
+        self.adapters = adapters or [PythonLanguageAdapter(), CLanguageAdapter()]
+
+    def select(self, *, language: str | None, build_system: str | None) -> LanguageAdapter:
+        normalized_build = _normalize_build_system(build_system)
+        for adapter in self.adapters:
+            if adapter.matches(language, normalized_build):
+                return adapter
+        return UnsupportedLanguageAdapter()
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        adapter = self.select(language=language, build_system=build_system)
+        normalized_build = None if _normalize_build_system(build_system) is None else build_system
+        return adapter.capability_report(language=language, build_system=normalized_build)
+
+    def build_backend(
+        self,
+        spec: TaskSpec,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        selected_build_system = _select_build_system(spec, build_system_override)
+        adapter = self.select(language=spec.language, build_system=selected_build_system)
+        report = adapter.capability_report(
+            language=spec.language,
+            build_system=selected_build_system,
+        )
+        if not report.build_supported and selected_build_system is not None:
+            raise BuildError(report.reason or "Selected language adapter cannot build this task.")
+        if not report.build_supported:
+            from pbgen.build.build_agent import LocalBuildBackend
+
+            return LocalBuildBackend(
+                build_system_override=build_system_override,
+                build_timeout_seconds=config.build_timeout_seconds,
+                probe_timeout_seconds=config.probe_timeout_seconds,
+            )
+        return adapter.build_backend(
+            config,
+            build_system_override=build_system_override,
+        )
+
+
+def default_language_registry() -> LanguageAdapterRegistry:
+    """Return the production language adapter registry."""
+
+    return LanguageAdapterRegistry()
+
+
+def _select_build_system(spec: TaskSpec, build_system_override: str | None) -> str | None:
+    normalized_override = _normalize_build_system(build_system_override)
+    if normalized_override:
+        return build_system_override
+    return spec.build_system

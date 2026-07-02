@@ -12,7 +12,7 @@ from pbgen.qc.qc_export import export_qc_queue
 from pbgen.repo_discovery.checkout import init_task
 from pbgen.reporting.run_summary import write_batch_summary, write_run_summary
 from pbgen.schemas import BatchRunReport, QCQueueReport, RunSummaryReport, TaskProfile
-from pbgen.serialization import read_data
+from pbgen.serialization import read_data, write_data
 from pbgen.task_profile import (
     apply_profile_to_config,
     load_batch_manifest,
@@ -37,7 +37,7 @@ def run_task_profile(
     run_config = apply_profile_to_config(profile, config)
     _validate_profile_source(profile)
 
-    init_task(
+    spec = init_task(
         task_id=task_id,
         config=run_config,
         local_path=profile.local_path,
@@ -45,6 +45,9 @@ def run_task_profile(
         commit_sha=profile.commit_sha,
         primary_binary=profile_primary_binary(profile),
     )
+    if profile.expected_language and profile.expected_language != spec.language:
+        spec = spec.model_copy(update={"language": profile.expected_language})
+        write_data(ArtifactPaths(run_config, task_id).task_spec, spec.model_dump(mode="json"))
     build_gold(task_id, run_config, build_system=build_system or "auto")
     discover_behavior_surface(task_id, run_config)
     CoverageGuidedTestController(run_config).run(

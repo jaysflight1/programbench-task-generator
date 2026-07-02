@@ -11,6 +11,7 @@ from pathlib import Path
 from pbgen.build.executable_hash import hash_executable
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.errors import BuildError
+from pbgen.languages import default_language_registry
 from pbgen.logging.event_log import EventLogger
 from pbgen.repo_discovery.metadata import analyze_repository
 from pbgen.schemas import BuildArtifact, BuildCandidate, EntrypointCandidate, TaskSpec
@@ -379,11 +380,35 @@ def build_gold(
     logger = EventLogger(paths.event_log)
     spec = TaskSpec.model_validate(read_data(paths.task_spec))
     logger.append(task_id=task_id, stage="build", event_type="gold_build_started")
-    backend = backend or LocalBuildBackend(
-        build_system_override=build_system,
-        build_timeout_seconds=config.build_timeout_seconds,
-        probe_timeout_seconds=config.probe_timeout_seconds,
-    )
+    if backend is None:
+        registry = default_language_registry()
+        selected_build_system = (
+            build_system if build_system and build_system != "auto" else spec.build_system
+        )
+        capability_report = registry.capability_report(
+            language=spec.language,
+            build_system=selected_build_system,
+        )
+        write_data(
+            paths.reports / "language_capabilities.json",
+            capability_report.model_dump(mode="json"),
+        )
+        logger.append(
+            task_id=task_id,
+            stage="build",
+            event_type="language_adapter_selected",
+            metrics={
+                "adapter": capability_report.adapter_name,
+                "language": capability_report.language or "unknown",
+                "build_system": capability_report.build_system or "unknown",
+                "build_supported": capability_report.build_supported,
+            },
+        )
+        backend = registry.build_backend(
+            spec,
+            config,
+            build_system_override=build_system,
+        )
     try:
         artifact = backend.build(spec, paths.repo, paths.gold)
     except BuildError:

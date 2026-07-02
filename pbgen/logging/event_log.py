@@ -13,6 +13,7 @@ EVENT_TYPES = {
     "repo_selected",
     "repo_cloned",
     "gold_build_started",
+    "language_adapter_selected",
     "gold_build_succeeded",
     "gold_build_failed",
     "executable_hashed",

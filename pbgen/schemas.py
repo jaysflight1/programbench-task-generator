@@ -118,6 +118,22 @@ class TestArtifactRecord(PBModel):
     renderer: str
 
 
+class LanguageCapabilityReport(PBModel):
+    """Structured capability report for a language/build adapter selection."""
+
+    language: str | None = None
+    build_system: str | None = None
+    adapter_name: str
+    supported: bool
+    build_supported: bool
+    coverage_supported: bool
+    behavior_probe_supported: bool
+    test_rendering_supported: bool
+    package_runtime: str | None = None
+    reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class TaskProfile(PBModel):
     """Repository-specific settings for real ProgramBench-scale runs."""
 
