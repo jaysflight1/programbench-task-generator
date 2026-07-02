@@ -160,22 +160,13 @@ Before sharing a submission artifact, run:
 These checks cover the core schemas, task-profile loading, structured test results,
 coverage-guided generation loop, quality reports, run summaries, and packaging paths.
 
-## Submission Hygiene
+## Clean Source Export
 
-Do not submit the raw working directory. Development runs can leave virtualenvs,
-`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `*.egg-info`, local logs,
-and `artifacts/` outputs in the workspace.
-
-Use the clean export artifact instead:
+For review or archival use, the project includes a deterministic export command:
 
 ```bash
 pbgen export-submission --output dist/programbench-generator-submission.zip
 ```
-
-That archive should include source, tests, prompts, examples, docs, and packaging files,
-while excluding local caches, generated benchmark artifacts, hidden run logs, virtualenvs,
-and machine-specific files.
-
 ## Current Limits
 
 - Python CLI repositories are the first production-quality target.
