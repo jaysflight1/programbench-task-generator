@@ -96,6 +96,7 @@ def test_product_workflow_cli_commands_parse() -> None:
             "candidate",
             "--build-script",
             "candidate/build.sh",
+            "--trusted-local",
         ]
     )
 
@@ -108,3 +109,4 @@ def test_product_workflow_cli_commands_parse() -> None:
     assert evaluate.command == "evaluate-submission"
     assert evaluate.submission_source == "candidate"
     assert evaluate.build_script == "candidate/build.sh"
+    assert evaluate.trusted_local is True

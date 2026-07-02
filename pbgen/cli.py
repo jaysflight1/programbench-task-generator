@@ -109,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
             manifest = release_task_package(args.task_id, config)
             print(f"Released task package: {manifest.evaluator_package}")
         elif args.command == "evaluate-submission":
+            if args.execution_policy:
+                config.execution_policy = args.execution_policy
+            if args.trusted_local:
+                config.trusted_local_execution = True
+                config.execution_policy = "trusted-local"
             report = evaluate_source_submission(
                 CandidateSubmission(
                     package_path=Path(args.package),
@@ -316,6 +321,16 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--package", required=True, help="Path to released evaluator package or manifest")
     evaluate.add_argument("--submission-source", required=True, help="Candidate source tree")
     evaluate.add_argument("--build-script", required=True, help="Candidate build script")
+    evaluate.add_argument(
+        "--execution-policy",
+        choices=["trusted-local", "sandboxed-local", "docker-no-network"],
+        help="Override execution policy for this candidate evaluation",
+    )
+    evaluate.add_argument(
+        "--trusted-local",
+        action="store_true",
+        help="Explicitly allow local candidate build execution for trusted fixtures",
+    )
 
     run = sub.add_parser("run-task", help="Run the deterministic local pipeline from a task profile")
     _add_profile_run_args(run)

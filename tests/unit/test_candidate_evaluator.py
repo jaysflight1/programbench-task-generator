@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pbgen.candidate_evaluator import evaluate_source_submission
+from pbgen.config import PBGenConfig
+from pbgen.schemas import (
+    CandidateSubmission,
+    ExecutableTestCase,
+    ExecutableTestSuite,
+    ExpectedOutput,
+    ReleasedTaskPackageManifest,
+)
+from pbgen.serialization import read_data, write_data
+
+
+def test_source_submission_passes_all_hidden_tests(tmp_path: Path) -> None:
+    evaluator = _write_evaluator_package(
+        tmp_path,
+        [
+            _case("test_help", ["--help"], "Usage: candidate\n"),
+            _case("test_version", ["--version"], "candidate 1.0\n"),
+        ],
+    )
+    source, build_script = _write_candidate_source(tmp_path, program_body=_passing_program())
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is True
+    assert report.build_success is True
+    assert report.tests_passed == 2
+    assert report.total_tests == 2
+    assert report.pass_rate == pytest.approx(1.0)
+    assert report.executable_path is not None
+    assert report.executable_path.name == "program"
+
+    persisted = read_data(evaluator / "reports" / "candidate_evaluation_report.json")
+    assert persisted["resolved"] is True
+    assert persisted["tests_passed"] == 2
+
+
+def test_source_submission_reports_partial_hidden_test_pass_rate(tmp_path: Path) -> None:
+    evaluator = _write_evaluator_package(
+        tmp_path,
+        [
+            _case("test_help", ["--help"], "Usage: candidate\n"),
+            _case("test_version", ["--version"], "candidate 1.0\n"),
+        ],
+    )
+    source, build_script = _write_candidate_source(tmp_path, program_body=_partial_program())
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is False
+    assert report.build_success is True
+    assert report.tests_passed == 1
+    assert report.total_tests == 2
+    assert report.pass_rate == pytest.approx(0.5)
+
+
+def test_source_submission_reports_build_failure(tmp_path: Path) -> None:
+    evaluator = _write_evaluator_package(tmp_path, [_case("test_help", ["--help"], "Usage\n")])
+    source, build_script = _write_candidate_source(
+        tmp_path,
+        build_body="raise SystemExit(7)\n",
+    )
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is False
+    assert report.build_success is False
+    assert report.total_tests == 0
+    assert report.pass_rate == 0.0
+    assert report.build_log_path is not None
+    assert report.build_log_path.exists()
+    assert report.reason == "candidate build script exited with status 7"
+
+
+def test_source_submission_requires_out_program(tmp_path: Path) -> None:
+    evaluator = _write_evaluator_package(tmp_path, [_case("test_help", ["--help"], "Usage\n")])
+    source, build_script = _write_candidate_source(
+        tmp_path,
+        build_body="from pathlib import Path\nPath('out').mkdir()\n",
+    )
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is False
+    assert report.build_success is False
+    assert report.reason == "candidate build script did not produce out/program"
+
+
+def test_docker_policy_fails_clearly_until_docker_backend_phase(tmp_path: Path) -> None:
+    evaluator = _write_evaluator_package(tmp_path, [_case("test_help", ["--help"], "Usage\n")])
+    source, build_script = _write_candidate_source(tmp_path, program_body=_passing_program())
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        PBGenConfig(workspace_root=tmp_path, execution_policy="docker-no-network"),
+    )
+
+    assert report.resolved is False
+    assert report.build_success is False
+    assert "Docker execution backend phase" in (report.reason or "")
+
+
+def _trusted_config(tmp_path: Path) -> PBGenConfig:
+    return PBGenConfig(
+        workspace_root=tmp_path,
+        execution_policy="trusted-local",
+        trusted_local_execution=True,
+        build_timeout_seconds=10,
+    )
+
+
+def _write_evaluator_package(
+    tmp_path: Path,
+    cases: list[ExecutableTestCase],
+) -> Path:
+    evaluator = tmp_path / "evaluator"
+    hidden_tests = evaluator / "hidden_tests"
+    hidden_tests.mkdir(parents=True)
+    suite = ExecutableTestSuite(task_id="demo", iteration=0, cases=cases)
+    write_data(hidden_tests / "test_cases_iteration_0.json", suite.model_dump(mode="json"))
+    manifest = ReleasedTaskPackageManifest(
+        task_id="demo",
+        language="python",
+        build_system="script",
+        solver_package=tmp_path / "solver",
+        evaluator_package=evaluator,
+        hidden_tests_path=hidden_tests,
+        runtime_policy="trusted-local",
+        accepted_test_count=len(cases),
+        package_hash="test-hash",
+    )
+    write_data(evaluator / "release_manifest.json", manifest.model_dump(mode="json"))
+    return evaluator
+
+
+def _case(test_id: str, args: list[str], stdout: str) -> ExecutableTestCase:
+    return ExecutableTestCase(
+        test_id=test_id,
+        task_id="demo",
+        args=args,
+        expected_exit_code=0,
+        expected_stdout=ExpectedOutput(exact=stdout),
+        expected_stderr=ExpectedOutput(exact=""),
+        source="unit",
+    )
+
+
+def _write_candidate_source(
+    tmp_path: Path,
+    *,
+    program_body: str | None = None,
+    build_body: str | None = None,
+) -> tuple[Path, Path]:
+    source = tmp_path / "candidate"
+    source.mkdir()
+    build_script = source / "build.py"
+    if build_body is None:
+        assert program_body is not None
+        build_body = (
+            "from pathlib import Path\n"
+            "out = Path('out')\n"
+            "out.mkdir(exist_ok=True)\n"
+            "program = out / 'program'\n"
+            f"program.write_text({program_body!r}, encoding='utf-8')\n"
+            "program.chmod(0o755)\n"
+        )
+    build_script.write_text(build_body, encoding="utf-8")
+    return source, build_script
+
+
+def _passing_program() -> str:
+    return """#!/usr/bin/env python3
+import sys
+
+if sys.argv[1:] == ["--help"]:
+    print("Usage: candidate")
+    raise SystemExit(0)
+if sys.argv[1:] == ["--version"]:
+    print("candidate 1.0")
+    raise SystemExit(0)
+raise SystemExit(2)
+"""
+
+
+def _partial_program() -> str:
+    return """#!/usr/bin/env python3
+import sys
+
+if sys.argv[1:] == ["--help"]:
+    print("Usage: candidate")
+    raise SystemExit(0)
+raise SystemExit(2)
+"""
