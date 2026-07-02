@@ -103,8 +103,10 @@ def _assert_case_study_artifacts(tmp_path: Path, task_id: str) -> None:
         root / "RUN_SUMMARY.md",
         reports / "RUN_SUMMARY.json",
         packages / "solver" / "TASK.md",
+        packages / "solver" / "SOLVER_MANIFEST.json",
         packages / "solver" / "executable" / "program",
         packages / "evaluator" / "task.yaml",
+        packages / "evaluator" / "EVALUATOR_MANIFEST.json",
         packages / "evaluator" / "hidden_tests" / "test_cases_iteration_0.json",
         packages / "evaluator" / "reports" / "suite_quality_report.json",
     ]

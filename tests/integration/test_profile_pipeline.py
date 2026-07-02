@@ -34,3 +34,5 @@ def test_run_task_profile_writes_summary_without_real_repo_selection(tmp_path: P
     assert manifest["accepted_test_count"] > 0
     assert manifest["runtime_policy"] == "trusted-local"
     assert manifest["package_hash"]
+    assert manifest["leak_check_passed"] is True
+    assert manifest["solver_manifest_path"].endswith("SOLVER_MANIFEST.json")

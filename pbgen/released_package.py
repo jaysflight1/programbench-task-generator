@@ -15,7 +15,7 @@ from pbgen.serialization import read_data, write_data
 def release_task_package(task_id: str, config: PBGenConfig) -> ReleasedTaskPackageManifest:
     """Create cleanroom packages and write a release manifest."""
 
-    package_cleanroom(task_id, config)
+    package_info = package_cleanroom(task_id, config)
     paths = ArtifactPaths(config, task_id)
     spec = TaskSpec.model_validate(read_data(paths.task_spec))
     solver = paths.packages / "solver"
@@ -31,6 +31,12 @@ def release_task_package(task_id: str, config: PBGenConfig) -> ReleasedTaskPacka
         runtime_policy=config.execution_policy,
         accepted_test_count=_canonical_case_count(paths.generated_tests),
         package_hash=_hash_package_tree(paths.packages),
+        solver_manifest_path=solver / "SOLVER_MANIFEST.json",
+        evaluator_manifest_path=evaluator / "EVALUATOR_MANIFEST.json",
+        leak_check_passed=bool(package_info["leak_check"]["passed"]),
+        solver_file_count=int(package_info["solver_manifest"]["file_count"]),
+        evaluator_file_count=int(package_info["evaluator_manifest"]["file_count"]),
+        excluded_patterns=list(package_info["solver_manifest"]["excluded_patterns"]),
     )
     write_data(paths.packages / "release_manifest.json", manifest.model_dump(mode="json"))
     write_data(evaluator / "release_manifest.json", manifest.model_dump(mode="json"))

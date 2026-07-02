@@ -494,6 +494,12 @@ class ReleasedTaskPackageManifest(PBModel):
     runtime_policy: str
     accepted_test_count: int
     package_hash: str
+    solver_manifest_path: Path | None = None
+    evaluator_manifest_path: Path | None = None
+    leak_check_passed: bool | None = None
+    solver_file_count: int | None = None
+    evaluator_file_count: int | None = None
+    excluded_patterns: list[str] = Field(default_factory=list)
 
 
 class CandidateSubmission(PBModel):
