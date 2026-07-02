@@ -76,6 +76,7 @@ class PythonLanguageAdapter(LanguageAdapter):
             "requirements",
             "setuptools",
             "dependency-lock",
+            "custom-command",
         }
     )
 
@@ -115,6 +116,11 @@ class PythonLanguageAdapter(LanguageAdapter):
             build_system_override=build_system_override,
             build_timeout_seconds=config.build_timeout_seconds,
             probe_timeout_seconds=config.probe_timeout_seconds,
+            allow_custom_build_command=config.allow_custom_build_command,
+            execution_policy=config.execution_policy,
+            safe_command_allow_patterns=config.safe_command_allow_patterns,
+            safe_command_deny_patterns=config.safe_command_deny_patterns,
+            trusted_local_execution=config.trusted_local_execution,
         )
 
 
@@ -123,7 +129,7 @@ class CLanguageAdapter(LanguageAdapter):
 
     name = "c-cpp"
     languages = frozenset({"c", "cpp", "c++", "c/c++", "make"})
-    build_systems = frozenset({"make", "cmake", "c-single"})
+    build_systems = frozenset({"make", "cmake", "c-single", "custom-command"})
 
     def capability_report(
         self,
@@ -161,6 +167,11 @@ class CLanguageAdapter(LanguageAdapter):
             build_system_override=build_system_override,
             build_timeout_seconds=config.build_timeout_seconds,
             probe_timeout_seconds=config.probe_timeout_seconds,
+            allow_custom_build_command=config.allow_custom_build_command,
+            execution_policy=config.execution_policy,
+            safe_command_allow_patterns=config.safe_command_allow_patterns,
+            safe_command_deny_patterns=config.safe_command_deny_patterns,
+            trusted_local_execution=config.trusted_local_execution,
         )
 
 
@@ -247,6 +258,11 @@ class LanguageAdapterRegistry:
                 build_system_override=build_system_override,
                 build_timeout_seconds=config.build_timeout_seconds,
                 probe_timeout_seconds=config.probe_timeout_seconds,
+                allow_custom_build_command=config.allow_custom_build_command,
+                execution_policy=config.execution_policy,
+                safe_command_allow_patterns=config.safe_command_allow_patterns,
+                safe_command_deny_patterns=config.safe_command_deny_patterns,
+                trusted_local_execution=config.trusted_local_execution,
             )
         return adapter.build_backend(
             config,

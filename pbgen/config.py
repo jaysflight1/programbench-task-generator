@@ -36,6 +36,9 @@ class PBGenConfig(BaseModel):
     allow_network_dependency_fetch: bool = False
     allow_custom_build_command: bool = False
     trusted_local_execution: bool = False
+    execution_policy: str = "sandboxed-local"
+    safe_command_allow_patterns: list[str] = Field(default_factory=list)
+    safe_command_deny_patterns: list[str] = Field(default_factory=list)
     dependency_policy: str = "offline"
     build_timeout_seconds: int = 300
     probe_timeout_seconds: int = 15

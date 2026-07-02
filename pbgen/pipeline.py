@@ -8,6 +8,8 @@ from pbgen.build.build_agent import build_gold
 from pbgen.cleanroom.task_packager import package_cleanroom
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.errors import PBGenError
+from pbgen.schemas import BuildCandidate
+from pbgen.security import enforce_command_allowed
 from pbgen.qc.qc_export import export_qc_queue
 from pbgen.repo_discovery.checkout import init_task
 from pbgen.reporting.run_summary import write_batch_summary, write_run_summary
@@ -47,6 +49,33 @@ def run_task_profile(
     )
     if profile.expected_language and profile.expected_language != spec.language:
         spec = spec.model_copy(update={"language": profile.expected_language})
+        write_data(ArtifactPaths(run_config, task_id).task_spec, spec.model_dump(mode="json"))
+    if profile.build_command is not None:
+        if not run_config.allow_custom_build_command:
+            raise PBGenError("Custom build commands require trusted_local: true in the task profile.")
+        enforce_command_allowed(
+            profile.build_command,
+            policy=run_config.execution_policy,
+            allow_patterns=run_config.safe_command_allow_patterns,
+            deny_patterns=run_config.safe_command_deny_patterns,
+            trusted=run_config.trusted_local_execution,
+            command_kind="build",
+        )
+        spec = spec.model_copy(
+            update={
+                "build_system": "custom-command",
+                "build_candidates": [
+                    BuildCandidate(
+                        build_system="custom-command",
+                        language=spec.language,
+                        confidence=1.0,
+                        commands=[profile.build_command],
+                        output_hints=[profile.primary_binary] if profile.primary_binary else [],
+                    ),
+                    *spec.build_candidates,
+                ],
+            }
+        )
         write_data(ArtifactPaths(run_config, task_id).task_spec, spec.model_dump(mode="json"))
     build_gold(task_id, run_config, build_system=build_system or "auto")
     discover_behavior_surface(task_id, run_config)

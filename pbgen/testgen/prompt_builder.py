@@ -20,3 +20,7 @@ class TestGenerationPrompt(BaseModel):
     existing_test_names: list[str] = []
     iteration: int = 0
     executable_path: Path | None = None
+    execution_policy: str = "sandboxed-local"
+    safe_command_allow_patterns: list[str] = []
+    safe_command_deny_patterns: list[str] = []
+    trusted_local_execution: bool = False

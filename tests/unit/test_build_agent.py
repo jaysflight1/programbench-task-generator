@@ -9,6 +9,8 @@ from pbgen.build.build_agent import build_gold
 from pbgen.config import PBGenConfig
 from pbgen.errors import BuildError
 from pbgen.repo_discovery.checkout import init_task
+from pbgen.schemas import BuildCandidate, TaskSpec
+from pbgen.serialization import read_data, write_data
 from pbgen.subprocess_utils import run_command
 
 
@@ -87,6 +89,37 @@ def test_single_c_source_builds_with_compiler_fallback(tmp_path: Path) -> None:
     assert "tool" in artifact.executable_paths
 
 
+def test_custom_build_command_requires_trust(tmp_path: Path) -> None:
+    config = PBGenConfig(workspace_root=tmp_path)
+    init_task(task_id="custom", config=config, local_path=FIXTURES / "make_c")
+    _write_custom_build_spec(tmp_path, "custom")
+
+    with pytest.raises(BuildError, match="Custom build command is disabled"):
+        build_gold("custom", config)
+
+
+def test_trusted_custom_build_records_policy_metadata(tmp_path: Path) -> None:
+    if shutil.which("make") is None or shutil.which("cc") is None:
+        pytest.skip("make and cc are required for this fixture")
+    config = PBGenConfig(
+        workspace_root=tmp_path,
+        allow_custom_build_command=True,
+        trusted_local_execution=True,
+        execution_policy="trusted-local",
+    )
+    init_task(task_id="custom", config=config, local_path=FIXTURES / "make_c")
+    _write_custom_build_spec(tmp_path, "custom")
+
+    artifact = build_gold("custom", config)
+
+    attempt = artifact.build_attempts[0]
+    assert attempt["build_system"] == "custom-command"
+    assert attempt["execution_policy"] == "trusted-local"
+    assert attempt["trusted"] is True
+    assert attempt["timeout_seconds"] == config.build_timeout_seconds
+    assert "calc" in artifact.executable_paths
+
+
 def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     if shutil.which("make") is None:
         pytest.skip("make is required for this fixture")
@@ -99,3 +132,22 @@ def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     build_log = tmp_path / "artifacts" / "make-fail" / "gold" / "build.log"
     assert build_log.exists()
     assert "intentional failure from robust fixture" in build_log.read_text(encoding="utf-8")
+
+
+def _write_custom_build_spec(tmp_path: Path, task_id: str) -> None:
+    spec_path = tmp_path / "artifacts" / task_id / "task_spec.yaml"
+    spec = TaskSpec.model_validate(read_data(spec_path)).model_copy(
+        update={
+            "build_system": "custom-command",
+            "build_candidates": [
+                BuildCandidate(
+                    build_system="custom-command",
+                    language="c",
+                    confidence=1.0,
+                    commands=[["make"]],
+                    output_hints=["calc"],
+                )
+            ],
+        }
+    )
+    write_data(spec_path, spec.model_dump(mode="json"))

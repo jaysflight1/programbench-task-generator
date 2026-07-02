@@ -152,6 +152,7 @@ class TaskProfile(PBModel):
     expected_language: str | None = None
     dependency_policy: str = "offline"
     trusted_local: bool = False
+    execution_policy: str | None = None
     iterations: int = 3
     coverage_target: float | None = None
     min_coverage_delta: float | None = None

@@ -57,6 +57,12 @@ def apply_profile_to_config(profile: TaskProfile, config: PBGenConfig) -> PBGenC
         updates["allow_custom_build_command"] = profile.trusted_local
     if "trusted_local_execution" in fields:
         updates["trusted_local_execution"] = profile.trusted_local
+    if "execution_policy" in fields:
+        updates["execution_policy"] = _execution_policy(profile)
+    if "safe_command_allow_patterns" in fields:
+        updates["safe_command_allow_patterns"] = profile.safe_command_allow_patterns
+    if "safe_command_deny_patterns" in fields:
+        updates["safe_command_deny_patterns"] = profile.safe_command_deny_patterns
     if "dependency_policy" in fields:
         updates["dependency_policy"] = profile.dependency_policy
     if profile.generation_backend is not None and "generation_backend" in fields:
@@ -113,6 +119,12 @@ def load_batch_manifest(path: Path) -> tuple[str, list[TaskProfile]]:
 def _allows_network_dependency_fetch(profile: TaskProfile) -> bool:
     policy = profile.dependency_policy.strip().lower()
     return policy in _NETWORK_ENABLED_POLICIES
+
+
+def _execution_policy(profile: TaskProfile) -> str:
+    if profile.execution_policy:
+        return profile.execution_policy
+    return "trusted-local" if profile.trusted_local else "sandboxed-local"
 
 
 def _batch_id(value: Any, path: Path) -> str:

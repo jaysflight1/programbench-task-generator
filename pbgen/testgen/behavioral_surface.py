@@ -7,7 +7,9 @@ import subprocess
 from pathlib import Path
 
 from pbgen.config import ArtifactPaths, PBGenConfig
+from pbgen.errors import PBGenError
 from pbgen.logging.event_log import EventLogger
+from pbgen.security import enforce_command_allowed
 from pbgen.schemas import BehaviorCommand, BehaviorSurface, CommandExample, TaskSpec
 from pbgen.serialization import read_data, write_data
 from pbgen.testgen.example_extractor import extract_behavior_hints
@@ -22,7 +24,7 @@ def discover_behavior_surface(task_id: str, config: PBGenConfig) -> BehaviorSurf
 
     paths = ArtifactPaths(config, task_id)
     spec = TaskSpec.model_validate(read_data(paths.task_spec))
-    help_outputs = _probe_help(paths.executable)
+    help_outputs = _probe_help(paths.executable, config)
     docs_chunks = _read_docs(paths.repo, spec.docs_paths, max_bytes=config.max_doc_file_bytes)
     docs_text = "\n".join(text for _path, text in docs_chunks)
     combined = "\n".join(help_outputs + [docs_text])
@@ -132,12 +134,20 @@ def discover_behavior_surface(task_id: str, config: PBGenConfig) -> BehaviorSurf
     return surface
 
 
-def _probe_help(executable: Path) -> list[str]:
+def _probe_help(executable: Path, config: PBGenConfig) -> list[str]:
     outputs: list[str] = []
     for args in (["--help"], ["-h"], ["--version"], []):
         try:
+            enforce_command_allowed(
+                [str(executable), *args],
+                policy=config.execution_policy,
+                allow_patterns=config.safe_command_allow_patterns,
+                deny_patterns=config.safe_command_deny_patterns,
+                trusted=config.trusted_local_execution,
+                command_kind="probe",
+            )
             result = run_command([str(executable), *args], timeout_seconds=15)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, PBGenError):
             continue
         outputs.append(result.stdout + "\n" + result.stderr)
     return outputs

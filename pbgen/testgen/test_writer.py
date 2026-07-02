@@ -20,6 +20,7 @@ from pbgen.schemas import (
     TestArtifactRecord,
 )
 from pbgen.serialization import write_data
+from pbgen.security import is_command_allowed
 from pbgen.subprocess_utils import run_command
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
 
@@ -81,7 +82,7 @@ class LocalHeuristicTestGenerationBackend(TestGenerationBackend):
         output_dir.mkdir(parents=True, exist_ok=True)
         test_path = _next_iteration_path(output_dir, prompt.iteration)
         examples = _examples_for_prompt(prompt)
-        behaviors = _record_behaviors(examples, _resolve_executable(prompt, output_dir), output_dir)
+        behaviors = _record_behaviors(prompt, examples, _resolve_executable(prompt, output_dir), output_dir)
         if not behaviors:
             return []
         suite = _test_suite_from_behaviors(prompt.task_id, behaviors, prompt.iteration)
@@ -102,7 +103,7 @@ def _examples_for_prompt(prompt: TestGenerationPrompt) -> list[CommandExample]:
     examples = [
         example
         for example in prompt.behavior_surface.command_examples
-        if _is_safe_args(example.args)
+        if _is_safe_example(prompt, example.args)
     ]
     examples.extend(_examples_from_surface(prompt.behavior_surface))
     examples.extend(_examples_for_gaps(prompt.behavior_surface, prompt.coverage_gaps))
@@ -195,13 +196,14 @@ def _fallback_examples(surface: BehaviorSurface) -> list[CommandExample]:
 
 
 def _record_behaviors(
+    prompt: TestGenerationPrompt,
     examples: list[CommandExample],
     executable_path: Path | None,
     output_dir: Path,
 ) -> list[RecordedCommandBehavior]:
     behaviors: list[RecordedCommandBehavior] = []
     for example in examples:
-        if not _is_safe_args(example.args):
+        if not _is_safe_example(prompt, example.args):
             continue
         if executable_path is None:
             recorded = _behavior_from_expected(example)
@@ -519,6 +521,20 @@ def _is_safe_args(args: list[str]) -> bool:
         if arg.startswith(("/", "~")) or ".." in arg.split("/"):
             return False
     return True
+
+
+def _is_safe_example(prompt: TestGenerationPrompt, args: list[str]) -> bool:
+    if not _is_safe_args(args):
+        return False
+    decision = is_command_allowed(
+        ["program", *args],
+        policy=prompt.execution_policy,
+        allow_patterns=prompt.safe_command_allow_patterns,
+        deny_patterns=prompt.safe_command_deny_patterns,
+        trusted=prompt.trusted_local_execution,
+        command_kind="generated-test",
+    )
+    return decision.allowed
 
 
 def _dedupe_examples(examples: list[CommandExample]) -> list[CommandExample]:

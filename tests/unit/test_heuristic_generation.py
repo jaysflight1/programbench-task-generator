@@ -124,6 +124,36 @@ def test_backend_records_gold_outputs_and_appends_iteration_files(tmp_path: Path
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_backend_filters_examples_with_execution_policy(tmp_path: Path) -> None:
+    executable = _write_fake_gold(tmp_path / "gold_program")
+    output_dir = tmp_path / "generated_tests"
+    surface = BehaviorSurface(
+        task_id="calc",
+        commands=[BehaviorCommand(command="--help", category="help")],
+        global_flags=["--help"],
+        command_examples=[
+            CommandExample(args=["--help"], source="docs", category="help"),
+            CommandExample(args=["delete", "all"], source="docs", category="example"),
+        ],
+    )
+    prompt = GenerationPrompt(
+        task_id="calc",
+        behavior_surface=surface,
+        iteration=0,
+        executable_path=executable,
+        safe_command_deny_patterns=[r"delete"],
+    )
+
+    paths = LocalHeuristicTestGenerationBackend().generate_tests(prompt, output_dir)
+    suite = ExecutableTestSuite.model_validate(
+        json.loads((output_dir / "test_cases_iteration_0.json").read_text(encoding="utf-8"))
+    )
+
+    assert paths
+    assert all("delete" not in case.args for case in suite.cases)
+    assert any(case.args == ["--help"] for case in suite.cases)
+
+
 def _write_fake_gold(path: Path) -> Path:
     path.write_text(
         """#!/usr/bin/env python3

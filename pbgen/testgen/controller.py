@@ -55,6 +55,10 @@ class CoverageGuidedTestController:
                 coverage_gaps=gaps,
                 iteration=iteration,
                 executable_path=paths.executable,
+                execution_policy=self.config.execution_policy,
+                safe_command_allow_patterns=self.config.safe_command_allow_patterns,
+                safe_command_deny_patterns=self.config.safe_command_deny_patterns,
+                trusted_local_execution=self.config.trusted_local_execution,
             )
             test_paths = self.backend.generate_tests(prompt, paths.generated_tests)
             accepted = repair_or_discard_bad_tests(test_paths)

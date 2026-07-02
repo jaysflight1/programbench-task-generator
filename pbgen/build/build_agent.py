@@ -10,11 +10,12 @@ from pathlib import Path
 
 from pbgen.build.executable_hash import hash_executable
 from pbgen.config import ArtifactPaths, PBGenConfig
-from pbgen.errors import BuildError
+from pbgen.errors import BuildError, PBGenError
 from pbgen.languages import default_language_registry
 from pbgen.logging.event_log import EventLogger
 from pbgen.repo_discovery.metadata import analyze_repository
 from pbgen.schemas import BuildArtifact, BuildCandidate, EntrypointCandidate, TaskSpec
+from pbgen.security import command_policy_metadata, enforce_command_allowed
 from pbgen.serialization import read_data, write_data
 from pbgen.subprocess_utils import run_command
 
@@ -36,10 +37,20 @@ class LocalBuildBackend(BuildBackend):
         *,
         build_timeout_seconds: int = 300,
         probe_timeout_seconds: int = 15,
+        allow_custom_build_command: bool = False,
+        execution_policy: str = "sandboxed-local",
+        safe_command_allow_patterns: list[str] | None = None,
+        safe_command_deny_patterns: list[str] | None = None,
+        trusted_local_execution: bool = False,
     ) -> None:
         self.build_system_override = build_system_override
         self.build_timeout_seconds = build_timeout_seconds
         self.probe_timeout_seconds = probe_timeout_seconds
+        self.allow_custom_build_command = allow_custom_build_command
+        self.execution_policy = execution_policy
+        self.safe_command_allow_patterns = safe_command_allow_patterns or []
+        self.safe_command_deny_patterns = safe_command_deny_patterns or []
+        self.trusted_local_execution = trusted_local_execution
 
     def build(self, spec: TaskSpec, repo_path: Path, output_dir: Path) -> BuildArtifact:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -80,6 +91,8 @@ class LocalBuildBackend(BuildBackend):
                     built = self._build_scripts(spec, repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "python-package":
                     built = self._build_python_package(spec, repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "custom-command":
+                    built = self._build_custom(candidate, repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "make":
                     built = self._build_make(candidate, repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "cmake":
@@ -308,6 +321,70 @@ class LocalBuildBackend(BuildBackend):
         )
         return built
 
+    def _build_custom(
+        self,
+        candidate: BuildCandidate,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        if not self.allow_custom_build_command:
+            raise BuildError("Custom build command is disabled unless the task is trusted local.")
+        if not candidate.commands:
+            raise BuildError("Custom build candidate has no command.")
+        command = candidate.commands[0]
+        try:
+            decision = enforce_command_allowed(
+                command,
+                policy=self.execution_policy,
+                allow_patterns=self.safe_command_allow_patterns,
+                deny_patterns=self.safe_command_deny_patterns,
+                trusted=self.trusted_local_execution,
+                command_kind="build",
+            )
+        except PBGenError as exc:
+            attempts.append(
+                {
+                    "build_system": "custom-command",
+                    "command": command,
+                    "status": "blocked",
+                    "reason": str(exc),
+                    **self._policy_metadata(self.build_timeout_seconds),
+                }
+            )
+            raise BuildError(str(exc)) from exc
+        before = _executable_snapshot(repo_path)
+        result = run_command(
+            list(command),
+            cwd=repo_path,
+            timeout_seconds=self.build_timeout_seconds,
+        )
+        after = _executable_snapshot(repo_path)
+        created = sorted(after - before)
+        outputs = _paths_from_hints(repo_path, candidate.output_hints) or created
+        built: dict[str, Path] = {}
+        for source in outputs:
+            destination = output_dir / _safe_executable_name(source.stem)
+            shutil.copy2(source, destination)
+            destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
+            built[source.stem] = destination
+        attempts.append(
+            {
+                "build_system": "custom-command",
+                "command": command,
+                "status": "succeeded" if result.ok and built else "failed",
+                "exit_code": result.returncode,
+                "stdout": result.stdout[-2000:],
+                "stderr": result.stderr[-2000:],
+                "policy_decision": decision.reason,
+                "outputs": {name: path.as_posix() for name, path in built.items()},
+                **self._policy_metadata(self.build_timeout_seconds),
+            }
+        )
+        if not result.ok:
+            raise BuildError("custom build command failed")
+        return built
+
     def _build_cmake(
         self,
         repo_path: Path,
@@ -403,6 +480,14 @@ class LocalBuildBackend(BuildBackend):
         probes: list[str] = []
         for args in (["--help"], ["-h"], ["--version"], []):
             try:
+                decision = enforce_command_allowed(
+                    [str(executable), *args],
+                    policy=self.execution_policy,
+                    allow_patterns=self.safe_command_allow_patterns,
+                    deny_patterns=self.safe_command_deny_patterns,
+                    trusted=self.trusted_local_execution,
+                    command_kind="probe",
+                )
                 result = run_command(
                     [str(executable), *args],
                     cwd=repo_path,
@@ -410,7 +495,13 @@ class LocalBuildBackend(BuildBackend):
                 )
                 probes.append(
                     f"$ program {' '.join(args)}\nexit={result.returncode}\n"
+                    f"policy={self.execution_policy} decision={decision.reason}\n"
+                    f"timeout={self.probe_timeout_seconds}\n"
                     f"stdout={result.stdout[:500]}\nstderr={result.stderr[:500]}\n"
+                )
+            except PBGenError as exc:
+                probes.append(
+                    f"$ program {' '.join(args)}\nblocked={exc}\n"
                 )
             except subprocess.TimeoutExpired as exc:
                 probes.append(
@@ -420,6 +511,13 @@ class LocalBuildBackend(BuildBackend):
                     f"stderr={_timeout_text(exc.stderr)[:500]}\n"
                 )
         return probes
+
+    def _policy_metadata(self, timeout_seconds: int | None) -> dict[str, object]:
+        return command_policy_metadata(
+            policy=self.execution_policy,
+            timeout_seconds=timeout_seconds,
+            trusted=self.trusted_local_execution,
+        )
 
 
 def build_gold(

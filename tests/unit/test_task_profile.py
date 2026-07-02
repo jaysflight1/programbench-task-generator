@@ -100,6 +100,9 @@ def test_apply_profile_to_config_returns_copy_with_overrides(tmp_path: Path) -> 
         min_coverage_delta=0.03,
         dependency_policy="offline",
         trusted_local=False,
+        execution_policy="docker-no-network",
+        safe_command_allow_patterns=[r"^program --help$"],
+        safe_command_deny_patterns=[r"delete"],
         generation_backend="model",
         model_provider="external-command",
         model_command=["model-cli", "--json"],
@@ -116,6 +119,9 @@ def test_apply_profile_to_config_returns_copy_with_overrides(tmp_path: Path) -> 
     assert updated.allow_network_dependency_fetch is False
     assert updated.allow_custom_build_command is False
     assert updated.trusted_local_execution is False
+    assert updated.execution_policy == "docker-no-network"
+    assert updated.safe_command_allow_patterns == [r"^program --help$"]
+    assert updated.safe_command_deny_patterns == [r"delete"]
     assert updated.dependency_policy == "offline"
     assert updated.generation_backend == "model"
     assert updated.model_provider == "external-command"
