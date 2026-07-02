@@ -23,7 +23,7 @@ from pbgen.testgen.test_writer import TestGenerationBackend
 
 
 class CoverageGuidedTestController:
-    """ProgramBench-style iterative controller with MVP local generation."""
+    """ProgramBench-style iterative controller with local or model-backed generation."""
 
     def __init__(
         self,

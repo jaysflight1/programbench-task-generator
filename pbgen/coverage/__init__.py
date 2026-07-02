@@ -11,7 +11,11 @@ from pbgen.coverage.adapters import (
     create_coverage_wrapper,
     run_python_coverage,
 )
-from pbgen.coverage.coverage_runner import empty_mvp_coverage_report, run_c_family_coverage
+from pbgen.coverage.coverage_runner import (
+    empty_coverage_report,
+    empty_mvp_coverage_report,
+    run_c_family_coverage,
+)
 from pbgen.coverage.registry import (
     CoverageBackendRegistry,
     CoverageRunContext,
@@ -30,6 +34,7 @@ __all__ = [
     "coverage_unavailable_report",
     "coverage_report_from_json",
     "create_coverage_wrapper",
+    "empty_coverage_report",
     "empty_mvp_coverage_report",
     "run_c_family_coverage",
     "run_python_coverage",

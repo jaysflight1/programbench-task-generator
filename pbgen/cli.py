@@ -44,7 +44,7 @@ from pbgen.testgen.controller import CoverageGuidedTestController
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the CLI. Typer is an install dependency; argparse keeps the MVP runnable here."""
+    """Run the command-line interface."""
 
     parser = _build_parser()
     args = parser.parse_args(argv)

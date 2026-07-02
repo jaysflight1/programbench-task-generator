@@ -15,7 +15,7 @@ TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class PBGenConfig(BaseModel):
-    """Runtime configuration with conservative MVP defaults."""
+    """Runtime configuration with conservative offline defaults."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

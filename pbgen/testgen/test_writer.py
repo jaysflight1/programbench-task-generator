@@ -1,4 +1,4 @@
-"""Test-generation backend interface and local heuristic backend."""
+"""Test-generation backend interface and deterministic local agentic backend."""
 
 from __future__ import annotations
 

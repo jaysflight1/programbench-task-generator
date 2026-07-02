@@ -9,8 +9,8 @@ from pbgen.coverage.adapters import CFamilyCoverageAdapter, PythonCoverageAdapte
 from pbgen.schemas import CoverageReport, TaskSpec
 
 
-def empty_mvp_coverage_report(task_id: str, iteration: int = 0) -> CoverageReport:
-    """Return a transparent placeholder coverage report for the MVP path."""
+def empty_coverage_report(task_id: str, iteration: int = 0) -> CoverageReport:
+    """Return a transparent unavailable coverage report."""
 
     return CoverageReport(
         task_id=task_id,
@@ -20,6 +20,12 @@ def empty_mvp_coverage_report(task_id: str, iteration: int = 0) -> CoverageRepor
         coverage_unavailable_reason="coverage backend is not available for this task",
         line_coverage=None,
     )
+
+
+def empty_mvp_coverage_report(task_id: str, iteration: int = 0) -> CoverageReport:
+    """Backward-compatible alias for unavailable coverage reports."""
+
+    return empty_coverage_report(task_id, iteration)
 
 
 def run_python_coverage(

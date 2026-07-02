@@ -39,16 +39,16 @@ class CoverageAdapter(ABC):
 
 
 class PlaceholderCoverageAdapter(CoverageAdapter):
-    """Professional placeholder for future Rust/Go/C/C++ coverage backends."""
+    """Explicit unavailable adapter for languages without coverage support yet."""
 
     def __init__(self, language: str) -> None:
         self.language = language
 
     def instrument_build(self, repo_path: Path) -> Path:
-        raise CoverageError(f"{self.language} coverage instrumentation is not implemented in the MVP.")
+        raise CoverageError(f"{self.language} coverage instrumentation is not implemented yet.")
 
     def run_tests_with_coverage(self, tests_path: Path, executable_path: Path) -> CoverageReport:
-        raise CoverageError(f"{self.language} coverage execution is not implemented in the MVP.")
+        raise CoverageError(f"{self.language} coverage execution is not implemented yet.")
 
     def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
         return report.gaps
