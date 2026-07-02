@@ -12,10 +12,18 @@ from pbgen.coverage.adapters import (
     run_python_coverage,
 )
 from pbgen.coverage.coverage_runner import empty_mvp_coverage_report, run_c_family_coverage
+from pbgen.coverage.registry import (
+    CoverageBackendRegistry,
+    CoverageRunContext,
+    run_registered_coverage,
+    write_coverage_artifacts,
+)
 
 __all__ = [
     "CFamilyCoverageAdapter",
     "CoverageAdapter",
+    "CoverageBackendRegistry",
+    "CoverageRunContext",
     "CoverageWrapper",
     "PlaceholderCoverageAdapter",
     "PythonCoverageAdapter",
@@ -25,4 +33,6 @@ __all__ = [
     "empty_mvp_coverage_report",
     "run_c_family_coverage",
     "run_python_coverage",
+    "run_registered_coverage",
+    "write_coverage_artifacts",
 ]

@@ -101,7 +101,7 @@ def score_suite(
         final_score=final_score,
         notes=[
             (
-                "Python coverage was measured and included in the quality score."
+                _coverage_note(coverage_report)
                 if coverage_available
                 else MISSING_COVERAGE_NOTE
             ),
@@ -124,3 +124,10 @@ def score_suite(
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
     return max(lower, min(upper, value))
+
+
+def _coverage_note(coverage_report: CoverageReport | None) -> str:
+    backend = coverage_report.coverage_backend if coverage_report else None
+    if backend:
+        return f"Coverage was measured with {backend} and included in the quality score."
+    return "Coverage was measured and included in the quality score."

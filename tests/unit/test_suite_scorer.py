@@ -40,13 +40,21 @@ def test_missing_coverage_caps_perfect_correctness_score(tmp_path, coverage_repo
 def test_measured_coverage_contributes_normally(tmp_path) -> None:
     suite_report, reward_report, _ = _score_suite(
         tmp_path,
-        coverage_report=schemas.CoverageReport(task_id="demo", iteration=0, line_coverage=0.5),
+        coverage_report=schemas.CoverageReport(
+            task_id="demo",
+            iteration=0,
+            coverage_backend="python-coverage.py",
+            line_coverage=0.5,
+        ),
     )
 
     assert suite_report.line_coverage == pytest.approx(0.5)
     assert reward_report.coverage_score == pytest.approx(0.5)
     assert reward_report.final_score == pytest.approx(0.95)
-    assert "Python coverage was measured and included in the quality score." in reward_report.notes
+    assert (
+        "Coverage was measured with python-coverage.py and included in the quality score."
+        in reward_report.notes
+    )
     assert MISSING_COVERAGE_NOTE not in reward_report.notes
 
 
