@@ -56,6 +56,8 @@ def run_leak_check(task_id: str, solver_dir: Path, report_path: Path, event_log_
         scanned_files += 1
         rel = path.relative_to(solver_dir).as_posix()
         lower = rel.lower()
+        if lower == "executable/program" or lower.startswith("gold/"):
+            findings.append(f"gold/reference executable path visible: {rel}")
         if _path_is_test_like(lower):
             findings.append(f"test-like path visible: {rel}")
         for fragment in sorted(FORBIDDEN_PATH_FRAGMENTS):

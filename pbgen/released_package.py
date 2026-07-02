@@ -34,6 +34,7 @@ def release_task_package(task_id: str, config: PBGenConfig) -> ReleasedTaskPacka
         solver_manifest_path=solver / "SOLVER_MANIFEST.json",
         evaluator_manifest_path=evaluator / "EVALUATOR_MANIFEST.json",
         leak_check_passed=bool(package_info["leak_check"]["passed"]),
+        solver_includes_gold_executable=False,
         solver_file_count=int(package_info["solver_manifest"]["file_count"]),
         evaluator_file_count=int(package_info["evaluator_manifest"]["file_count"]),
         excluded_patterns=list(package_info["solver_manifest"]["excluded_patterns"]),

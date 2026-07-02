@@ -103,15 +103,18 @@ def _assert_case_study_artifacts(tmp_path: Path, task_id: str) -> None:
         root / "RUN_SUMMARY.md",
         reports / "RUN_SUMMARY.json",
         packages / "solver" / "TASK.md",
+        packages / "solver" / "SUBMISSION.md",
         packages / "solver" / "SOLVER_MANIFEST.json",
-        packages / "solver" / "executable" / "program",
+        packages / "solver" / "task.yaml",
         packages / "evaluator" / "task.yaml",
         packages / "evaluator" / "EVALUATOR_MANIFEST.json",
+        packages / "evaluator" / "gold" / "program",
         packages / "evaluator" / "hidden_tests" / "test_cases_iteration_0.json",
         packages / "evaluator" / "reports" / "suite_quality_report.json",
     ]
     missing = [path for path in expected_paths if not path.exists()]
     assert missing == []
+    assert not (packages / "solver" / "executable" / "program").exists()
 
     suite = ExecutableTestSuite.model_validate(read_data(generated / "test_cases_iteration_0.json"))
     assert suite.cases

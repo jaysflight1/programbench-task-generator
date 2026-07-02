@@ -220,10 +220,11 @@ artifacts/<task_id>/
     evaluator/
 ```
 
-The solver package contains only solver-visible materials such as the executable,
-public docs, assets, and `TASK.md`. The evaluator package contains hidden tests,
-gold executable material, reports, logs, and evaluator metadata. Leak checks are part
-of the packaging flow.
+The solver package contains only solver-visible materials such as public docs,
+assets, `TASK.md`, `SUBMISSION.md`, and the public task spec. It does not include
+the gold/reference executable. The evaluator package contains hidden tests, gold
+executable material, reports, logs, and evaluator metadata. Leak checks are part of
+the packaging flow.
 
 ## Validation
 

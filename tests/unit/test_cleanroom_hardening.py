@@ -92,8 +92,16 @@ def test_package_cleanroom_writes_manifests_and_excludes_solver_leaks(tmp_path: 
     assert "hidden_tests" not in solver_files
     assert "generated_tests" not in solver_files
     assert "generation_events" not in solver_files
+    assert "executable/program" not in solver_files
+    assert (solver / "SUBMISSION.md").exists()
+    assert (solver / "task.yaml").exists()
+    assert not (solver / "executable" / "program").exists()
+    solver_task = read_data(solver / "task.yaml")
+    assert solver_task["repo_url"] == "cleanroom://solver-package"
+    assert "Users" not in (solver / "task.yaml").read_text(encoding="utf-8")
     assert (evaluator / "hidden_tests" / "test_cases_iteration_0.json").exists()
     assert (evaluator / "reports" / "leak_check_report.json").exists()
+    assert (evaluator / "gold" / "program").exists()
 
 
 def test_release_manifest_includes_cleanroom_audit_fields(tmp_path: Path) -> None:
@@ -104,10 +112,12 @@ def test_release_manifest_includes_cleanroom_audit_fields(tmp_path: Path) -> Non
     persisted = read_data(tmp_path / "artifacts" / "demo" / "packages" / "release_manifest.json")
 
     assert manifest.leak_check_passed is True
+    assert manifest.solver_includes_gold_executable is False
     assert manifest.solver_file_count is not None and manifest.solver_file_count > 0
     assert manifest.evaluator_file_count is not None and manifest.evaluator_file_count > 0
     assert manifest.excluded_patterns
     assert persisted["leak_check_passed"] is True
+    assert persisted["solver_includes_gold_executable"] is False
     assert persisted["solver_manifest_path"].endswith("SOLVER_MANIFEST.json")
 
 

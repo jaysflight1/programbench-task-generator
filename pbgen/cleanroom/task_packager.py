@@ -24,10 +24,12 @@ EXCLUDED_SOLVER_PATTERNS = [
     "artifacts/",
     "generated_tests/",
     "hidden_tests/",
+    "gold/",
     "logs/",
     "reports/",
     "tests/",
     "test/",
+    "executable/program",
     "*.pyc",
     "*.pyo",
     "*.egg-info/",
@@ -54,16 +56,43 @@ def package_cleanroom(task_id: str, config: PBGenConfig) -> CleanroomPackageInfo
     if evaluator.exists():
         shutil.rmtree(evaluator)
 
-    (solver / "executable").mkdir(parents=True)
     (solver / "docs").mkdir(parents=True)
     (solver / "assets").mkdir(parents=True)
-    shutil.copy2(paths.executable, solver / "executable" / "program")
     copied_docs = copy_public_docs(paths.repo, spec.docs_paths, solver / "docs")
     copied_assets = copy_assets(paths.repo, spec.asset_paths, solver / "assets")
     (solver / "TASK.md").write_text(
-        f"# {task_id}\n\nUse `executable/program` and the provided docs/assets to reproduce the program behavior.\n",
+        "\n".join(
+            [
+                f"# {task_id}",
+                "",
+                "Implement a candidate solution from source.",
+                "",
+                "Submit a source directory and a build script. The build script must",
+                "produce an executable at `out/program` inside the submitted source tree.",
+                "The evaluator will build that source and run hidden executable tests.",
+                "",
+                "Use the provided public docs/assets to infer the expected behavior.",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
+    (solver / "SUBMISSION.md").write_text(
+        "\n".join(
+            [
+                "# Candidate Submission Contract",
+                "",
+                "- Provide a source directory.",
+                "- Provide a build script path.",
+                "- The build script runs from the source directory.",
+                "- On success, it must create `out/program`.",
+                "- Hidden tests and gold/reference binaries are evaluator-only.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_data(solver / "task.yaml", _solver_visible_task_spec(spec).model_dump(mode="json"))
     solver_manifest = _write_package_manifest(
         solver / "SOLVER_MANIFEST.json",
         package_type="solver",
@@ -72,8 +101,9 @@ def package_cleanroom(task_id: str, config: PBGenConfig) -> CleanroomPackageInfo
         included_public_files=[
             *(path.relative_to(solver).as_posix() for path in copied_docs),
             *(path.relative_to(solver).as_posix() for path in copied_assets),
+            "SUBMISSION.md",
             "TASK.md",
-            "executable/program",
+            "task.yaml",
         ],
         excluded_patterns=EXCLUDED_SOLVER_PATTERNS,
     )
@@ -151,3 +181,18 @@ def _write_package_manifest(
     }
     write_data(path, manifest)
     return manifest
+
+
+def _solver_visible_task_spec(spec: TaskSpec) -> TaskSpec:
+    return spec.model_copy(
+        update={
+            "repo_url": "cleanroom://solver-package",
+            "build_candidates": [],
+            "entrypoint_candidates": [],
+            "dependency_manifests": [],
+            "metadata_warnings": [
+                *spec.metadata_warnings,
+                "Solver-visible task spec omits repository source paths, build probes, and gold executable metadata.",
+            ],
+        }
+    )
