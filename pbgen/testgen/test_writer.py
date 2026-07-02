@@ -86,17 +86,30 @@ class LocalHeuristicTestGenerationBackend(TestGenerationBackend):
         if not behaviors:
             return []
         suite = _test_suite_from_behaviors(prompt.task_id, behaviors, prompt.iteration)
-        suite_path = _next_case_suite_path(output_dir, prompt.iteration)
-        write_data(suite_path, suite.model_dump(mode="json"))
-        test_path.write_text(_render_pytest(suite.cases), encoding="utf-8")
-        _write_artifact_record(prompt.task_id, prompt.iteration, suite, suite_path, [test_path])
-        return [test_path]
+        return write_executable_test_suite(output_dir, suite, rendered_path=test_path)
 
 
 @dataclass(frozen=True)
 class _SignaturePlan:
     args: list[str]
     numeric: bool = False
+
+
+def write_executable_test_suite(
+    output_dir: Path,
+    suite: ExecutableTestSuite,
+    *,
+    rendered_path: Path | None = None,
+) -> list[Path]:
+    """Persist a canonical executable suite and pytest compatibility renderer."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    test_path = rendered_path or _next_iteration_path(output_dir, suite.iteration)
+    suite_path = _next_case_suite_path(output_dir, suite.iteration)
+    write_data(suite_path, suite.model_dump(mode="json"))
+    test_path.write_text(_render_pytest(suite.cases), encoding="utf-8")
+    _write_artifact_record(suite.task_id, suite.iteration, suite, suite_path, [test_path])
+    return [test_path]
 
 
 def _examples_for_prompt(prompt: TestGenerationPrompt) -> list[CommandExample]:

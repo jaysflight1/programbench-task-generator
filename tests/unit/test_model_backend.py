@@ -8,11 +8,13 @@ import pytest
 from pbgen.config import PBGenConfig
 from pbgen.errors import TestGenerationError as GenerationError
 from pbgen.schemas import BehaviorCommand, BehaviorSurface
+from pbgen.schemas import ExecutableTestSuite
 from pbgen.testgen.backends import create_test_generation_backend
 from pbgen.testgen.model_backend import (
     ModelTestGenerationBackend,
     StaticModelClient,
     parse_model_generation_response,
+    parse_model_test_case_response,
     render_model_generation_prompt,
 )
 from pbgen.testgen.prompt_builder import TestGenerationPrompt as GenerationPrompt
@@ -77,6 +79,78 @@ def test_model_backend_writes_safe_fake_model_output(tmp_path: Path) -> None:
     assert "PBGEN_EXECUTABLE" in client.requests[0].prompt
 
 
+def test_model_backend_writes_structured_cases_after_gold_observation(tmp_path: Path) -> None:
+    executable = _write_fake_gold(tmp_path / "gold" / "executable" / "program")
+    response = json.dumps(
+        {
+            "test_cases": [
+                {
+                    "test_id": "help case",
+                    "args": ["--help"],
+                    "behavior_category": "help",
+                    "source_evidence": "help text",
+                },
+                {
+                    "test_id": "help duplicate",
+                    "args": ["--help"],
+                    "behavior_category": "help",
+                    "source_evidence": "duplicate",
+                },
+            ]
+        }
+    )
+    backend = ModelTestGenerationBackend(
+        PBGenConfig(workspace_root=tmp_path, generation_backend="model"),
+        client=StaticModelClient(response),
+    )
+
+    paths = backend.generate_tests(_prompt(tmp_path, executable), tmp_path / "generated_tests")
+    suite = ExecutableTestSuite.model_validate(
+        json.loads((tmp_path / "generated_tests" / "test_cases_iteration_0.json").read_text())
+    )
+    diagnostics = json.loads(
+        (tmp_path / "reports" / "model_generation_iteration_0.json").read_text()
+    )
+
+    assert [path.name for path in paths] == ["test_behavior_iter_0.py"]
+    assert len(suite.cases) == 1
+    assert suite.cases[0].expected_exit_code == 0
+    assert suite.cases[0].expected_stdout.exact == "Usage: fake [--help]\n"
+    assert suite.cases[0].provenance["gold_observed"] == "true"
+    assert any(
+        item.get("reason") == "duplicate structured test case"
+        for item in diagnostics["diagnostics"]
+    )
+
+
+def test_model_backend_rejects_unsafe_structured_cases_before_writing(tmp_path: Path) -> None:
+    response = json.dumps(
+        {
+            "test_cases": [
+                {
+                    "args": ["delete", "all"],
+                    "expected_exit_code": 0,
+                    "source_evidence": "unsafe docs",
+                }
+            ]
+        }
+    )
+    backend = ModelTestGenerationBackend(
+        PBGenConfig(workspace_root=tmp_path, generation_backend="model"),
+        client=StaticModelClient(response),
+    )
+
+    with pytest.raises(GenerationError, match="no safe structured test cases"):
+        backend.generate_tests(_prompt(tmp_path), tmp_path / "generated_tests")
+
+    assert not list((tmp_path / "generated_tests").glob("*.py"))
+    diagnostics = json.loads(
+        (tmp_path / "reports" / "model_generation_iteration_0.json").read_text()
+    )
+    assert diagnostics["diagnostics"][0]["accepted"] is False
+    assert "unsafe model test command" in diagnostics["diagnostics"][0]["reason"]
+
+
 def test_model_backend_rejects_unsafe_output_before_writing(tmp_path: Path) -> None:
     unsafe_source = """
 import subprocess
@@ -116,6 +190,15 @@ def test_model_parser_accepts_fenced_python() -> None:
     assert "test_model_help" in parsed[0].source
 
 
+def test_model_parser_accepts_structured_cases() -> None:
+    parsed = parse_model_test_case_response(
+        json.dumps({"test_cases": [{"args": ["--help"], "source_evidence": "docs"}]})
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].data["args"] == ["--help"]
+
+
 def test_model_factory_requires_explicit_model_command(tmp_path: Path) -> None:
     config = PBGenConfig(workspace_root=tmp_path, generation_backend="model", model_command=None)
 
@@ -134,7 +217,7 @@ def test_rendered_model_prompt_contains_surface_and_constraints(tmp_path: Path) 
     assert "--help" in prompt_text
 
 
-def _prompt(tmp_path: Path) -> GenerationPrompt:
+def _prompt(tmp_path: Path, executable_path: Path | None = None) -> GenerationPrompt:
     return GenerationPrompt(
         task_id="demo",
         behavior_surface=BehaviorSurface(
@@ -144,5 +227,25 @@ def _prompt(tmp_path: Path) -> GenerationPrompt:
         ),
         coverage_gaps=[],
         iteration=0,
-        executable_path=tmp_path / "gold" / "executable" / "program",
+        executable_path=executable_path or tmp_path / "gold" / "executable" / "program",
     )
+
+
+def _write_fake_gold(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+
+if sys.argv[1:] == ["--help"]:
+    print("Usage: fake [--help]")
+    raise SystemExit(0)
+print("unknown", file=sys.stderr)
+raise SystemExit(2)
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
