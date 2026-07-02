@@ -157,6 +157,7 @@ class TaskProfile(PBModel):
     coverage_target: float | None = None
     min_coverage_delta: float | None = None
     generation_backend: str | None = None
+    docker_image: str | None = None
     model_provider: str | None = None
     model_command: list[str] | None = None
     model_name: str | None = None

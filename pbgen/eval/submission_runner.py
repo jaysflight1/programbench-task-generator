@@ -11,9 +11,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from pbgen.errors import PBGenError
 from pbgen.eval.executable_runner import run_canonical_suites_from_path
 from pbgen.schemas import PerTestOutcome, TestRunResult
-from pbgen.subprocess_utils import run_command
+from pbgen.subprocess_utils import CommandRunner, run_command
 
 
 _SNIPPET_LIMIT = 4000
@@ -112,12 +113,30 @@ def run_pytest_suite(task_id: str, tests_path: Path, executable_path: Path) -> T
     )
 
 
-def run_generated_suite(task_id: str, tests_path: Path, executable_path: Path) -> TestRunResult:
+def run_generated_suite(
+    task_id: str,
+    tests_path: Path,
+    executable_path: Path,
+    *,
+    command_runner: CommandRunner | None = None,
+    work_root: Path | None = None,
+) -> TestRunResult:
     """Run canonical executable cases when available, otherwise run pytest files."""
 
-    canonical_result = run_canonical_suites_from_path(task_id, tests_path, executable_path)
+    canonical_result = run_canonical_suites_from_path(
+        task_id,
+        tests_path,
+        executable_path,
+        command_runner=command_runner,
+        work_root=work_root,
+    )
     if canonical_result is not None:
         return canonical_result
+    if command_runner is not None:
+        raise PBGenError(
+            "Sandboxed candidate evaluation requires canonical hidden tests; "
+            "pytest fallback would execute candidate code on the host."
+        )
     return run_pytest_suite(task_id, tests_path, executable_path)
 
 

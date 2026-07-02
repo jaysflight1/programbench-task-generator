@@ -10,8 +10,10 @@ import subprocess
 import tempfile
 import time
 
+from pbgen.errors import PBGenError
 from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutput, PerTestOutcome, TestRunResult
 from pbgen.serialization import read_data
+from pbgen.subprocess_utils import CommandResult, CommandRunner, run_command
 
 
 _SNIPPET_LIMIT = 4000
@@ -21,20 +23,40 @@ def run_executable_test_suite(
     task_id: str,
     suite: ExecutableTestSuite,
     executable_path: Path,
+    *,
+    command_runner: CommandRunner | None = None,
+    work_root: Path | None = None,
 ) -> TestRunResult:
     """Execute a canonical test suite directly against an executable."""
 
-    return run_executable_test_cases(task_id, suite.cases, executable_path)
+    return run_executable_test_cases(
+        task_id,
+        suite.cases,
+        executable_path,
+        command_runner=command_runner,
+        work_root=work_root,
+    )
 
 
 def run_executable_test_cases(
     task_id: str,
     cases: Iterable[ExecutableTestCase],
     executable_path: Path,
+    *,
+    command_runner: CommandRunner | None = None,
+    work_root: Path | None = None,
 ) -> TestRunResult:
     """Execute canonical test cases and return structured outcomes."""
 
-    outcomes = [_run_case(case, executable_path) for case in cases]
+    outcomes = [
+        _run_case(
+            case,
+            executable_path,
+            command_runner=command_runner,
+            work_root=work_root,
+        )
+        for case in cases
+    ]
     passed = sum(1 for outcome in outcomes if outcome.outcome == "passed")
     failed = sum(1 for outcome in outcomes if outcome.outcome in {"failed", "error"})
     stdout = "\n".join(outcome.stdout for outcome in outcomes if outcome.stdout)
@@ -55,6 +77,9 @@ def run_canonical_suites_from_path(
     task_id: str,
     tests_path: Path,
     executable_path: Path,
+    *,
+    command_runner: CommandRunner | None = None,
+    work_root: Path | None = None,
 ) -> TestRunResult | None:
     """Run canonical suites found under a path, or return None when absent."""
 
@@ -62,7 +87,13 @@ def run_canonical_suites_from_path(
     if not suites:
         return None
     cases = [case for suite in suites for case in suite.cases]
-    return run_executable_test_cases(task_id, cases, executable_path)
+    return run_executable_test_cases(
+        task_id,
+        cases,
+        executable_path,
+        command_runner=command_runner,
+        work_root=work_root,
+    )
 
 
 def load_canonical_suites(tests_path: Path) -> list[ExecutableTestSuite]:
@@ -78,9 +109,20 @@ def load_canonical_suites(tests_path: Path) -> list[ExecutableTestSuite]:
     return suites
 
 
-def _run_case(case: ExecutableTestCase, executable_path: Path) -> PerTestOutcome:
+def _run_case(
+    case: ExecutableTestCase,
+    executable_path: Path,
+    *,
+    command_runner: CommandRunner | None,
+    work_root: Path | None,
+) -> PerTestOutcome:
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="pbgen-case-") as temp_dir:
+    if work_root is not None:
+        work_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="pbgen-case-",
+        dir=str(work_root) if work_root is not None else None,
+    ) as temp_dir:
         cwd = Path(temp_dir)
         fixture_error = _write_fixtures(cwd, case.fixture_files)
         if fixture_error is not None:
@@ -91,18 +133,14 @@ def _run_case(case: ExecutableTestCase, executable_path: Path) -> PerTestOutcome
                 "error",
                 failure_message=fixture_error,
             )
-        env = os.environ.copy()
-        env.update(case.env)
         try:
-            completed = subprocess.run(
+            result = _execute_case_command(
                 [str(executable_path), *case.args],
-                input=case.stdin,
-                check=False,
-                text=True,
-                capture_output=True,
                 cwd=cwd,
-                env=env,
-                timeout=case.timeout_seconds,
+                env=case.env,
+                stdin=case.stdin,
+                timeout_seconds=case.timeout_seconds,
+                command_runner=command_runner,
             )
         except subprocess.TimeoutExpired as exc:
             return _outcome(
@@ -122,16 +160,53 @@ def _run_case(case: ExecutableTestCase, executable_path: Path) -> PerTestOutcome
                 "error",
                 failure_message=str(exc),
             )
+        except PBGenError as exc:
+            return _outcome(
+                case,
+                executable_path,
+                started,
+                "error",
+                failure_message=str(exc),
+            )
 
-    failure = _case_failure(case, completed.returncode, completed.stdout, completed.stderr)
+    failure = _case_failure(case, result.returncode, result.stdout, result.stderr)
     return _outcome(
         case,
         executable_path,
         started,
         "passed" if failure is None else "failed",
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        stdout=result.stdout,
+        stderr=result.stderr,
         failure_message=failure,
+    )
+
+
+def _execute_case_command(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    stdin: str,
+    timeout_seconds: int,
+    command_runner: CommandRunner | None,
+) -> CommandResult:
+    if command_runner is not None:
+        return command_runner.run(
+            args,
+            cwd=cwd,
+            env=env,
+            stdin=stdin,
+            timeout_seconds=timeout_seconds,
+        )
+
+    local_env = os.environ.copy()
+    local_env.update(env)
+    return run_command(
+        args,
+        cwd=cwd,
+        env=local_env,
+        stdin=stdin,
+        timeout_seconds=timeout_seconds,
     )
 
 

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from pbgen.errors import PBGenError
 from pbgen.candidate_evaluator import evaluate_source_submission
 from pbgen.config import PBGenConfig
 from pbgen.schemas import (
@@ -120,7 +121,40 @@ def test_source_submission_requires_out_program(tmp_path: Path) -> None:
     assert report.reason == "candidate build script did not produce out/program"
 
 
-def test_docker_policy_fails_clearly_until_docker_backend_phase(tmp_path: Path) -> None:
+def test_source_submission_reports_hidden_test_execution_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _write_evaluator_package(tmp_path, [_case("test_help", ["--help"], "Usage\n")])
+    source, build_script = _write_candidate_source(tmp_path, program_body=_passing_program())
+
+    def fail_generated_suite(*args: object, **kwargs: object) -> object:
+        raise PBGenError("hidden tests require canonical cases")
+
+    monkeypatch.setattr(
+        "pbgen.candidate_evaluator.run_generated_suite",
+        fail_generated_suite,
+    )
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is False
+    assert report.build_success is True
+    assert report.reason == "hidden tests require canonical cases"
+
+
+def test_docker_policy_reports_unavailable_docker_without_host_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pbgen.security.command_executor.shutil.which", lambda _: None)
     evaluator = _write_evaluator_package(tmp_path, [_case("test_help", ["--help"], "Usage\n")])
     source, build_script = _write_candidate_source(tmp_path, program_body=_passing_program())
 
@@ -135,7 +169,12 @@ def test_docker_policy_fails_clearly_until_docker_backend_phase(tmp_path: Path) 
 
     assert report.resolved is False
     assert report.build_success is False
-    assert "Docker execution backend phase" in (report.reason or "")
+    assert "Docker executable is not available" in (report.reason or "")
+    assert report.build_log_path is not None
+    assert "Docker executable is not available" in report.build_log_path.read_text(
+        encoding="utf-8"
+    )
+    assert not (evaluator / "candidate_runs" / "latest" / "source" / "out" / "program").exists()
 
 
 def _trusted_config(tmp_path: Path) -> PBGenConfig:

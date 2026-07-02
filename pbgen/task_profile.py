@@ -67,6 +67,8 @@ def apply_profile_to_config(profile: TaskProfile, config: PBGenConfig) -> PBGenC
         updates["dependency_policy"] = profile.dependency_policy
     if profile.generation_backend is not None and "generation_backend" in fields:
         updates["generation_backend"] = profile.generation_backend
+    if profile.docker_image is not None and "docker_image" in fields:
+        updates["docker_image"] = profile.docker_image
     if profile.model_provider is not None and "model_provider" in fields:
         updates["model_provider"] = profile.model_provider
     if profile.model_command is not None and "model_command" in fields:

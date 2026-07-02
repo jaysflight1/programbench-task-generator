@@ -17,8 +17,9 @@ from pbgen.schemas import (
     TaskSpec,
 )
 from pbgen.security import enforce_command_allowed
+from pbgen.security.command_executor import DockerNoNetworkCommandRunner
 from pbgen.serialization import read_data, write_data
-from pbgen.subprocess_utils import CommandResult, run_command
+from pbgen.subprocess_utils import CommandResult, CommandRunner, LocalCommandRunner
 
 
 _RUN_DIR_NAME = "latest"
@@ -84,23 +85,6 @@ def evaluate_source_submission(
         raise PBGenError("evaluate-submission requires a submission source directory.")
     if submission.build_script is None:
         raise PBGenError("evaluate-submission requires a candidate build script.")
-    if config.execution_policy == "docker-no-network" and not config.trusted_local_execution:
-        return _write_report(
-            package,
-            CandidateEvaluationReport(
-                task_id=package.task_id,
-                resolved=False,
-                tests_passed=0,
-                total_tests=0,
-                pass_rate=0.0,
-                build_success=False,
-                runtime_policy=config.execution_policy,
-                reason=(
-                    "docker-no-network source-submission execution is implemented in "
-                    "the Docker execution backend phase"
-                ),
-            ),
-        )
 
     run_dir = package.evaluator_dir / "candidate_runs" / _RUN_DIR_NAME
     if run_dir.exists():
@@ -108,6 +92,7 @@ def evaluate_source_submission(
     run_dir.mkdir(parents=True)
     source_dir = run_dir / "source"
     build_log_path = run_dir / "build.log"
+    command_runner = _command_runner(config, run_dir)
 
     try:
         _copy_source_tree(submission.submission_source, source_dir)
@@ -126,7 +111,7 @@ def evaluate_source_submission(
             trusted=config.trusted_local_execution,
             command_kind="build",
         )
-        build_result = run_command(
+        build_result = command_runner.run(
             command,
             cwd=source_dir,
             timeout_seconds=config.build_timeout_seconds,
@@ -162,7 +147,30 @@ def evaluate_source_submission(
             ),
         )
     executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
-    result = run_generated_suite(package.task_id, package.hidden_tests_path, executable)
+    try:
+        result = run_generated_suite(
+            package.task_id,
+            package.hidden_tests_path,
+            executable,
+            command_runner=_sandbox_runner(config, command_runner),
+            work_root=_sandbox_work_root(config, run_dir),
+        )
+    except (OSError, PBGenError) as exc:
+        return _write_report(
+            package,
+            CandidateEvaluationReport(
+                task_id=package.task_id,
+                resolved=False,
+                tests_passed=0,
+                total_tests=0,
+                pass_rate=0.0,
+                build_success=True,
+                runtime_policy=config.execution_policy,
+                executable_path=executable,
+                build_log_path=build_log_path,
+                reason=str(exc),
+            ),
+        )
     report = CandidateEvaluationReport(
         task_id=package.task_id,
         resolved=result.total_tests > 0 and result.failed_tests == 0,
@@ -250,6 +258,26 @@ def _copy_or_resolve_build_script(
         shutil.copy2(script, destination)
         return destination
     return copied_source / relative
+
+
+def _command_runner(config: PBGenConfig, run_dir: Path) -> CommandRunner:
+    if _uses_docker_runner(config):
+        return DockerNoNetworkCommandRunner(run_dir, image=config.docker_image)
+    return LocalCommandRunner()
+
+
+def _sandbox_runner(config: PBGenConfig, runner: CommandRunner) -> CommandRunner | None:
+    return runner if _uses_docker_runner(config) else None
+
+
+def _sandbox_work_root(config: PBGenConfig, run_dir: Path) -> Path | None:
+    if not _uses_docker_runner(config):
+        return None
+    return run_dir / "test_work"
+
+
+def _uses_docker_runner(config: PBGenConfig) -> bool:
+    return config.execution_policy == "docker-no-network" and not config.trusted_local_execution
 
 
 def _build_command(build_script: Path) -> list[str]:

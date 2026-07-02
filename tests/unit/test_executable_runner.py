@@ -9,9 +9,11 @@ from pbgen.eval.executable_runner import (
     run_canonical_suites_from_path,
     run_executable_test_cases,
 )
+from pbgen.errors import PBGenError
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutput
 from pbgen.serialization import write_data
+from pbgen.subprocess_utils import CommandResult
 
 
 def test_run_executable_test_cases_records_pass_and_failure(tmp_path: Path) -> None:
@@ -105,6 +107,42 @@ def test_run_executable_test_cases_handles_timeout(tmp_path: Path) -> None:
     assert "timed out" in (result.outcomes[0].failure_message or "")
 
 
+def test_run_executable_test_cases_uses_injected_runner_without_host_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PBGEN_SAMPLE", "host-env")
+    executable = tmp_path / "tool"
+    executable.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    runner = _RecordingRunner()
+    work_root = tmp_path / "test_work"
+    case = ExecutableTestCase(
+        test_id="test_context",
+        task_id="demo",
+        args=["context", "input.txt"],
+        stdin="hello stdin\n",
+        env={"PBGEN_SAMPLE": "case-env"},
+        fixture_files={"input.txt": "fixture-data"},
+        expected_exit_code=0,
+        expected_stdout=ExpectedOutput(
+            contains=["stdin=hello stdin", "env=case-env", "file=fixture-data"],
+        ),
+        source="unit",
+    )
+
+    result = run_executable_test_cases(
+        "demo",
+        [case],
+        executable,
+        command_runner=runner,
+        work_root=work_root,
+    )
+
+    assert result.pass_rate == 1.0
+    assert runner.calls[0]["env"] == {"PBGEN_SAMPLE": "case-env"}
+    assert Path(runner.calls[0]["cwd"]).is_relative_to(work_root)
+
+
 def test_load_and_run_canonical_suites_from_path(tmp_path: Path) -> None:
     executable = _write_cli(tmp_path / "tool")
     tests_dir = tmp_path / "generated_tests"
@@ -148,6 +186,61 @@ def test_run_generated_suite_falls_back_to_pytest_without_canonical_cases(tmp_pa
 
     assert result.total_tests == 1
     assert result.pass_rate == 1.0
+
+
+def test_run_generated_suite_with_injected_runner_requires_canonical_cases(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "program"
+    executable.write_text("", encoding="utf-8")
+    test_file = tmp_path / "test_behavior.py"
+    test_file.write_text("def test_placeholder():\n    assert True\n", encoding="utf-8")
+
+    with pytest.raises(PBGenError, match="requires canonical hidden tests"):
+        run_generated_suite(
+            "demo",
+            test_file,
+            executable,
+            command_runner=_RecordingRunner(),
+        )
+
+
+class _RecordingRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def run(
+        self,
+        args: list[str],
+        *,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        stdin: str | None = None,
+        timeout_seconds: int | None = 60,
+    ) -> CommandResult:
+        assert cwd is not None
+        self.calls.append(
+            {
+                "args": args,
+                "cwd": cwd,
+                "env": env,
+                "stdin": stdin,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        file_text = (cwd / "input.txt").read_text(encoding="utf-8")
+        stdout = (
+            f"stdin={(stdin or '').strip()}\n"
+            f"env={(env or {}).get('PBGEN_SAMPLE', '')}\n"
+            f"file={file_text}\n"
+        )
+        return CommandResult(
+            args=args,
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+            cwd=cwd,
+        )
 
 
 def _write_cli(path: Path) -> Path:

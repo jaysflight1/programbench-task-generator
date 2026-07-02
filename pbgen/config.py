@@ -42,6 +42,7 @@ class PBGenConfig(BaseModel):
     dependency_policy: str = "offline"
     build_timeout_seconds: int = 300
     probe_timeout_seconds: int = 15
+    docker_image: str = "python:3.11-slim"
     max_doc_file_bytes: int = 200_000
     benchmark_trials: int = 5
     benchmark_warmups: int = 1
