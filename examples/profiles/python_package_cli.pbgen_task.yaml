@@ -1,0 +1,19 @@
+{
+  "task_id": "python_pkgcalc",
+  "local_path": "../robust_repos/python_package_cli",
+  "expected_language": "python",
+  "primary_binary": "pkgcalc",
+  "coverage_backend": "python",
+  "dependency_policy": "offline",
+  "trusted_local": true,
+  "iterations": 1,
+  "benchmark_commands": [
+    ["--version"],
+    ["echo", "hello"]
+  ],
+  "safe_command_deny_patterns": [
+    "rm",
+    "curl",
+    "wget"
+  ]
+}

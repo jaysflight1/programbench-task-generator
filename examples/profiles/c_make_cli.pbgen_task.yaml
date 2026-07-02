@@ -1,0 +1,18 @@
+{
+  "task_id": "c_make_ccalc",
+  "local_path": "../robust_repos/make_c_cli",
+  "expected_language": "c/c++",
+  "primary_binary": "ccalc",
+  "coverage_backend": "c-family-gcov",
+  "dependency_policy": "offline",
+  "trusted_local": true,
+  "iterations": 1,
+  "benchmark_commands": [
+    ["--version"]
+  ],
+  "safe_command_deny_patterns": [
+    "rm",
+    "curl",
+    "wget"
+  ]
+}

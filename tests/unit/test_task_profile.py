@@ -146,3 +146,30 @@ def test_resolve_profile_paths_uses_profile_directory(tmp_path: Path) -> None:
 
     assert resolved.local_path == (tmp_path / "repos" / "tool").resolve()
     assert profile.local_path == Path("../repos/tool")
+
+
+def test_shipped_profile_examples_load_and_resolve() -> None:
+    from pbgen.task_profile import resolve_profile_paths
+
+    profiles_dir = Path(__file__).parents[2] / "examples" / "profiles"
+
+    python_profile = resolve_profile_paths(
+        load_task_profile(profiles_dir / "python_package_cli.pbgen_task.yaml"),
+        profiles_dir,
+    )
+    c_profile = resolve_profile_paths(
+        load_task_profile(profiles_dir / "c_make_cli.pbgen_task.yaml"),
+        profiles_dir,
+    )
+
+    assert python_profile.task_id == "python_pkgcalc"
+    assert python_profile.local_path is not None
+    assert python_profile.local_path.exists()
+    assert python_profile.expected_language == "python"
+    assert profile_primary_binary(python_profile) == "pkgcalc"
+
+    assert c_profile.task_id == "c_make_ccalc"
+    assert c_profile.local_path is not None
+    assert c_profile.local_path.exists()
+    assert c_profile.expected_language == "c/c++"
+    assert profile_primary_binary(c_profile) == "ccalc"

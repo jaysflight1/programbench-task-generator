@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 _ALLOWED_TOP_LEVEL_FILES = ("README.md", "pyproject.toml")
-_ALLOWED_DIRECTORIES = ("pbgen", "tests", "prompts", "examples")
+_ALLOWED_DIRECTORIES = ("pbgen", "tests", "prompts", "examples", "docs")
 _TOP_LEVEL_INSTRUCTION_MARKDOWN = (
     "AGENTS.md",
     "CLAUDE.md",

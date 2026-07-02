@@ -28,6 +28,7 @@ def test_submission_archive_uses_allowlist_and_excludes_clutter(tmp_path: Path) 
     assert "tests/unit/test_demo.py" in names
     assert "prompts/generate_tests_for_gap.md" in names
     assert "examples/demo_task/README.md" in names
+    assert "docs/adapter_development.md" in names
 
     assert ".venv/lib/site.py" not in names
     assert "artifacts/run/output.json" not in names
@@ -73,6 +74,7 @@ def _write_project_fixture(tmp_path: Path) -> Path:
     (project_root / "tests" / "unit").mkdir(parents=True)
     (project_root / "prompts").mkdir(parents=True)
     (project_root / "examples" / "demo_task").mkdir(parents=True)
+    (project_root / "docs").mkdir(parents=True)
 
     (project_root / "README.md").write_text("# Demo\n", encoding="utf-8")
     (project_root / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
@@ -88,6 +90,10 @@ def _write_project_fixture(tmp_path: Path) -> Path:
     )
     (project_root / "examples" / "demo_task" / "README.md").write_text(
         "# Example\n",
+        encoding="utf-8",
+    )
+    (project_root / "docs" / "adapter_development.md").write_text(
+        "# Adapter Guide\n",
         encoding="utf-8",
     )
 
