@@ -285,7 +285,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--build-system",
         default="auto",
-        choices=["auto", "script", "python-package", "make", "c-single"],
+        choices=["auto", "script", "python-package", "make", "c-single", "cargo", "go", "cmake", "maven", "gradle"],
         help="Build backend override for the selected profile",
     )
     _add_generation_backend_args(run)

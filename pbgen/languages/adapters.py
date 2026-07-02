@@ -175,6 +175,99 @@ class CLanguageAdapter(LanguageAdapter):
         )
 
 
+class GoLanguageAdapter(LanguageAdapter):
+    """Go adapter skeleton for conservative `go build` support."""
+
+    name = "go"
+    languages = frozenset({"go"})
+    build_systems = frozenset({"go"})
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        return _managed_language_report(
+            adapter_name=self.name,
+            language=language,
+            build_system=build_system,
+            build_systems=self.build_systems,
+            package_runtime="native executable",
+            coverage_reason="Go coverage is not implemented yet.",
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        return _local_backend(config, build_system_override)
+
+
+class RustLanguageAdapter(LanguageAdapter):
+    """Rust adapter skeleton for conservative Cargo build support."""
+
+    name = "rust"
+    languages = frozenset({"rust"})
+    build_systems = frozenset({"cargo"})
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        return _managed_language_report(
+            adapter_name=self.name,
+            language=language,
+            build_system=build_system,
+            build_systems=self.build_systems,
+            package_runtime="native executable",
+            coverage_reason="Rust coverage is not implemented yet.",
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        return _local_backend(config, build_system_override)
+
+
+class JavaLanguageAdapter(LanguageAdapter):
+    """Java adapter skeleton for Maven and Gradle package builds."""
+
+    name = "java"
+    languages = frozenset({"java"})
+    build_systems = frozenset({"maven", "gradle"})
+
+    def capability_report(
+        self,
+        *,
+        language: str | None,
+        build_system: str | None,
+    ) -> LanguageCapabilityReport:
+        return _managed_language_report(
+            adapter_name=self.name,
+            language=language,
+            build_system=build_system,
+            build_systems=self.build_systems,
+            package_runtime="java",
+            coverage_reason="Java coverage is not implemented yet.",
+        )
+
+    def build_backend(
+        self,
+        config: PBGenConfig,
+        *,
+        build_system_override: str | None,
+    ) -> "BuildBackend":
+        return _local_backend(config, build_system_override)
+
+
 class UnsupportedLanguageAdapter(LanguageAdapter):
     """Explicit unsupported-language adapter used for diagnostics."""
 
@@ -217,7 +310,13 @@ class LanguageAdapterRegistry:
     """Deterministic language adapter selection."""
 
     def __init__(self, adapters: list[LanguageAdapter] | None = None) -> None:
-        self.adapters = adapters or [PythonLanguageAdapter(), CLanguageAdapter()]
+        self.adapters = adapters or [
+            PythonLanguageAdapter(),
+            CLanguageAdapter(),
+            GoLanguageAdapter(),
+            RustLanguageAdapter(),
+            JavaLanguageAdapter(),
+        ]
 
     def select(self, *, language: str | None, build_system: str | None) -> LanguageAdapter:
         normalized_build = _normalize_build_system(build_system)
@@ -281,3 +380,45 @@ def _select_build_system(spec: TaskSpec, build_system_override: str | None) -> s
     if normalized_override:
         return build_system_override
     return spec.build_system
+
+
+def _managed_language_report(
+    *,
+    adapter_name: str,
+    language: str | None,
+    build_system: str | None,
+    build_systems: frozenset[str],
+    package_runtime: str,
+    coverage_reason: str,
+) -> LanguageCapabilityReport:
+    normalized_build = _normalize_build_system(build_system)
+    build_supported = normalized_build in build_systems if normalized_build else True
+    warnings = [coverage_reason]
+    return LanguageCapabilityReport(
+        language=language,
+        build_system=build_system,
+        adapter_name=adapter_name,
+        supported=build_supported,
+        build_supported=build_supported,
+        coverage_supported=False,
+        behavior_probe_supported=True,
+        test_rendering_supported=True,
+        package_runtime=package_runtime,
+        reason=None if build_supported else f"Build system is not supported yet: {build_system}",
+        warnings=warnings,
+    )
+
+
+def _local_backend(config: PBGenConfig, build_system_override: str | None) -> "BuildBackend":
+    from pbgen.build.build_agent import LocalBuildBackend
+
+    return LocalBuildBackend(
+        build_system_override=build_system_override,
+        build_timeout_seconds=config.build_timeout_seconds,
+        probe_timeout_seconds=config.probe_timeout_seconds,
+        allow_custom_build_command=config.allow_custom_build_command,
+        execution_policy=config.execution_policy,
+        safe_command_allow_patterns=config.safe_command_allow_patterns,
+        safe_command_deny_patterns=config.safe_command_deny_patterns,
+        trusted_local_execution=config.trusted_local_execution,
+    )

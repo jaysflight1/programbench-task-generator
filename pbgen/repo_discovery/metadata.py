@@ -366,7 +366,7 @@ def _manifest_only_candidates(manifests: tuple[DependencyManifest, ...]) -> list
                 confidence=0.72,
                 commands=(("cargo", "build", "--release"),),
                 dependency_manifests=("Cargo.toml",),
-                warnings=("cargo build detected but local backend does not build rust yet",),
+                warnings=("cargo build detected; local backend has conservative rust skeleton support",),
             )
         )
     if "go.mod" in by_path:
@@ -375,9 +375,9 @@ def _manifest_only_candidates(manifests: tuple[DependencyManifest, ...]) -> list
                 build_system="go",
                 language="go",
                 confidence=0.72,
-                commands=(("go", "build", "./..."),),
+                commands=(("go", "build", "-o", "program", "."),),
                 dependency_manifests=("go.mod",),
-                warnings=("go build detected but local backend does not build go yet",),
+                warnings=("go build detected; local backend has conservative go skeleton support",),
             )
         )
     if "pom.xml" in by_path:
@@ -388,7 +388,7 @@ def _manifest_only_candidates(manifests: tuple[DependencyManifest, ...]) -> list
                 confidence=0.68,
                 commands=(("mvn", "package"),),
                 dependency_manifests=("pom.xml",),
-                warnings=("maven build detected but local backend does not build java yet",),
+                warnings=("maven build detected; local backend has conservative java skeleton support",),
             )
         )
     if "build.gradle" in by_path:
@@ -399,7 +399,7 @@ def _manifest_only_candidates(manifests: tuple[DependencyManifest, ...]) -> list
                 confidence=0.68,
                 commands=(("gradle", "build"),),
                 dependency_manifests=("build.gradle",),
-                warnings=("gradle build detected but local backend does not build java yet",),
+                warnings=("gradle build detected; local backend has conservative java skeleton support",),
             )
         )
     if "CMakeLists.txt" in by_path:

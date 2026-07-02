@@ -9,7 +9,14 @@ import pytest
 from pbgen.build.build_agent import build_gold
 from pbgen.config import PBGenConfig
 from pbgen.errors import BuildError
-from pbgen.languages import CLanguageAdapter, PythonLanguageAdapter, UnsupportedLanguageAdapter
+from pbgen.languages import (
+    CLanguageAdapter,
+    GoLanguageAdapter,
+    JavaLanguageAdapter,
+    PythonLanguageAdapter,
+    RustLanguageAdapter,
+    UnsupportedLanguageAdapter,
+)
 from pbgen.languages.adapters import LanguageAdapterRegistry
 from pbgen.repo_discovery.checkout import init_task
 from pbgen.schemas import TaskSpec
@@ -55,6 +62,27 @@ def test_registry_reports_unsupported_language() -> None:
     assert report.supported is False
     assert report.build_supported is False
     assert report.reason
+
+
+def test_registry_selects_go_rust_and_java_skeleton_adapters() -> None:
+    registry = LanguageAdapterRegistry()
+
+    go = registry.capability_report(language="go", build_system="go")
+    rust = registry.capability_report(language="rust", build_system="cargo")
+    java = registry.capability_report(language="java", build_system="maven")
+
+    assert isinstance(registry.select(language="go", build_system="go"), GoLanguageAdapter)
+    assert isinstance(registry.select(language="rust", build_system="cargo"), RustLanguageAdapter)
+    assert isinstance(registry.select(language="java", build_system="maven"), JavaLanguageAdapter)
+    assert go.build_supported is True
+    assert rust.build_supported is True
+    assert java.build_supported is True
+    assert go.coverage_supported is False
+    assert rust.coverage_supported is False
+    assert java.coverage_supported is False
+    assert "not implemented yet" in go.warnings[0]
+    assert "not implemented yet" in rust.warnings[0]
+    assert "not implemented yet" in java.warnings[0]
 
 
 def test_explicit_unsupported_build_system_fails_with_diagnostic(tmp_path: Path) -> None:

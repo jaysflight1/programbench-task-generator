@@ -17,7 +17,7 @@ from pbgen.repo_discovery.metadata import analyze_repository
 from pbgen.schemas import BuildArtifact, BuildCandidate, EntrypointCandidate, TaskSpec
 from pbgen.security import command_policy_metadata, enforce_command_allowed
 from pbgen.serialization import read_data, write_data
-from pbgen.subprocess_utils import run_command
+from pbgen.subprocess_utils import CommandResult, run_command
 
 
 class BuildBackend(ABC):
@@ -99,6 +99,14 @@ class LocalBuildBackend(BuildBackend):
                     built = self._build_cmake(repo_path, all_exe_dir, attempts)
                 elif candidate.build_system == "c-single":
                     built = self._build_c_single(candidate, repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "go":
+                    built = self._build_go(repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "cargo":
+                    built = self._build_cargo(repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "maven":
+                    built = self._build_maven(repo_path, all_exe_dir, attempts)
+                elif candidate.build_system == "gradle":
+                    built = self._build_gradle(repo_path, all_exe_dir, attempts)
                 else:
                     attempts.append(
                         {
@@ -155,7 +163,7 @@ class LocalBuildBackend(BuildBackend):
             executable_hash=hash_executable(executable),
             docker_image=None,
             build_log_path=build_log,
-            runtime_dependencies=["python3"] if spec.language == "python" else [],
+            runtime_dependencies=_runtime_dependencies(spec),
             executable_paths=built,
             build_attempts=attempts,
         )
@@ -469,6 +477,96 @@ class LocalBuildBackend(BuildBackend):
         destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
         return {source.stem: destination}
 
+    def _build_go(
+        self,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        tool = shutil.which("go")
+        if tool is None:
+            _append_missing_tool(attempts, "go", "go")
+            raise BuildError("go toolchain is not available for go build.")
+        destination = output_dir / "program"
+        command = [tool, "build", "-o", str(destination), "."]
+        result = run_command(command, cwd=repo_path, timeout_seconds=self.build_timeout_seconds)
+        attempts.append(_command_attempt("go", command, result, {"program": destination}))
+        if not result.ok:
+            raise BuildError("go build failed")
+        destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
+        return {"program": destination}
+
+    def _build_cargo(
+        self,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        tool = shutil.which("cargo")
+        if tool is None:
+            _append_missing_tool(attempts, "cargo", "cargo")
+            raise BuildError("cargo toolchain is not available for rust build.")
+        command = [tool, "build", "--release"]
+        result = run_command(command, cwd=repo_path, timeout_seconds=self.build_timeout_seconds)
+        if not result.ok:
+            attempts.append(_command_attempt("cargo", command, result, {}))
+            raise BuildError("cargo build failed")
+        outputs = _discover_rust_release_executables(repo_path)
+        built = _copy_named_outputs(outputs, output_dir)
+        attempts.append(_command_attempt("cargo", command, result, built))
+        if not built:
+            raise BuildError("cargo build produced no executable.")
+        return built
+
+    def _build_maven(
+        self,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        tool = shutil.which("mvn")
+        if tool is None:
+            _append_missing_tool(attempts, "maven", "mvn")
+            raise BuildError("mvn is not available for maven build.")
+        command = [tool, "-q", "package"]
+        result = run_command(command, cwd=repo_path, timeout_seconds=self.build_timeout_seconds)
+        if not result.ok:
+            attempts.append(_command_attempt("maven", command, result, {}))
+            raise BuildError("maven package failed")
+        built = _java_jar_wrappers(repo_path, output_dir)
+        attempts.append(_command_attempt("maven", command, result, built))
+        if not built:
+            raise BuildError("maven package produced no runnable jar.")
+        return built
+
+    def _build_gradle(
+        self,
+        repo_path: Path,
+        output_dir: Path,
+        attempts: list[dict[str, object]],
+    ) -> dict[str, Path]:
+        wrapper = repo_path / "gradlew"
+        if wrapper.exists():
+            wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
+            command = [str(wrapper), "build"]
+            tool_name = "gradlew"
+        else:
+            tool = shutil.which("gradle")
+            if tool is None:
+                _append_missing_tool(attempts, "gradle", "gradle")
+                raise BuildError("gradle is not available for gradle build.")
+            command = [tool, "build"]
+            tool_name = "gradle"
+        result = run_command(command, cwd=repo_path, timeout_seconds=self.build_timeout_seconds)
+        if not result.ok:
+            attempts.append(_command_attempt("gradle", command, result, {}))
+            raise BuildError(f"{tool_name} build failed")
+        built = _java_jar_wrappers(repo_path, output_dir)
+        attempts.append(_command_attempt("gradle", command, result, built))
+        if not built:
+            raise BuildError("gradle build produced no runnable jar.")
+        return built
+
     def _choose_primary(self, spec: TaskSpec, built: dict[str, Path]) -> tuple[str, Path]:
         for entrypoint in spec.entrypoint_candidates:
             for name, path in built.items():
@@ -583,6 +681,92 @@ def _safe_executable_name(name: str) -> str:
     return cleaned or "program"
 
 
+def _runtime_dependencies(spec: TaskSpec) -> list[str]:
+    if spec.language == "python":
+        return ["python3"]
+    if spec.language == "java":
+        return ["java"]
+    return []
+
+
+def _append_missing_tool(
+    attempts: list[dict[str, object]],
+    build_system: str,
+    tool: str,
+) -> None:
+    attempts.append(
+        {
+            "build_system": build_system,
+            "status": "tool_unavailable",
+            "reason": f"Required tool is not available on PATH: {tool}",
+        }
+    )
+
+
+def _command_attempt(
+    build_system: str,
+    command: list[str],
+    result: CommandResult,
+    outputs: dict[str, Path],
+) -> dict[str, object]:
+    return {
+        "build_system": build_system,
+        "command": command,
+        "status": "succeeded" if result.ok and outputs else "failed",
+        "exit_code": result.returncode,
+        "stdout": result.stdout[-2000:],
+        "stderr": result.stderr[-2000:],
+        "outputs": {name: path.as_posix() for name, path in outputs.items()},
+    }
+
+
+def _copy_named_outputs(sources: list[Path], output_dir: Path) -> dict[str, Path]:
+    built: dict[str, Path] = {}
+    for source in sources:
+        name = _safe_executable_name(source.stem)
+        destination = output_dir / name
+        shutil.copy2(source, destination)
+        destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
+        built[name] = destination
+    return built
+
+
+def _discover_rust_release_executables(repo_path: Path) -> list[Path]:
+    release_dir = repo_path / "target" / "release"
+    if not release_dir.exists():
+        return []
+    ignored = {"build", "deps", "examples", "incremental"}
+    outputs: list[Path] = []
+    for path in sorted(release_dir.iterdir()):
+        if path.name in ignored or not path.is_file():
+            continue
+        if path.suffix.lower() in {".d", ".rlib", ".rmeta"}:
+            continue
+        if path.stat().st_mode & stat.S_IXUSR:
+            outputs.append(path)
+    return outputs
+
+
+def _java_jar_wrappers(repo_path: Path, output_dir: Path) -> dict[str, Path]:
+    jars = [
+        path
+        for path in sorted(repo_path.rglob("*.jar"))
+        if not any(part in {".git", ".gradle"} for part in path.relative_to(repo_path).parts)
+        and "-sources" not in path.name
+        and "-javadoc" not in path.name
+    ]
+    built: dict[str, Path] = {}
+    for jar in jars:
+        name = _safe_executable_name(jar.stem)
+        jar_destination = output_dir / f"{name}.jar"
+        shutil.copy2(jar, jar_destination)
+        wrapper = output_dir / name
+        _write_java_jar_wrapper(wrapper, jar_destination)
+        wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
+        built[name] = wrapper
+    return built
+
+
 def _run_make_clean(
     repo_path: Path,
     timeout_seconds: int,
@@ -678,6 +862,20 @@ def _write_python_package_wrapper(
         lines.append(f"runpy.run_module({module!r}, run_name='__main__')")
     lines.append("")
     destination.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_java_jar_wrapper(destination: Path, jar_path: Path) -> None:
+    destination.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"exec java -jar {str(jar_path)!r} \"$@\"",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
 
 def _executable_snapshot(repo_path: Path) -> set[Path]:

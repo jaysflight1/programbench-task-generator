@@ -5,7 +5,7 @@ import shutil
 
 import pytest
 
-from pbgen.build.build_agent import build_gold
+from pbgen.build.build_agent import LocalBuildBackend, build_gold
 from pbgen.config import PBGenConfig
 from pbgen.errors import BuildError
 from pbgen.repo_discovery.checkout import init_task
@@ -120,6 +120,52 @@ def test_trusted_custom_build_records_policy_metadata(tmp_path: Path) -> None:
     assert "calc" in artifact.executable_paths
 
 
+@pytest.mark.parametrize(
+    ("build_system", "language", "tool", "message"),
+    [
+        ("go", "go", "go", "go toolchain is not available"),
+        ("cargo", "rust", "cargo", "cargo toolchain is not available"),
+        ("maven", "java", "mvn", "mvn is not available"),
+        ("gradle", "java", "gradle", "gradle is not available"),
+    ],
+)
+def test_managed_language_builds_report_missing_toolchain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    build_system: str,
+    language: str,
+    tool: str,
+    message: str,
+) -> None:
+    repo = tmp_path / "repo"
+    output = tmp_path / "gold"
+    repo.mkdir()
+    _write_manifest_for_build_system(repo, build_system)
+    original_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == tool else original_which(name))
+    spec = TaskSpec(
+        task_id=build_system,
+        repo_url="local",
+        commit_sha="local",
+        language=language,
+        build_system=build_system,
+        build_candidates=[
+            BuildCandidate(
+                build_system=build_system,
+                language=language,
+                confidence=1.0,
+            )
+        ],
+    )
+
+    with pytest.raises(BuildError, match=message):
+        LocalBuildBackend().build(spec, repo, output)
+
+    build_log = output / "build.log"
+    assert build_log.exists()
+    assert "tool_unavailable" in build_log.read_text(encoding="utf-8")
+
+
 def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     if shutil.which("make") is None:
         pytest.skip("make is required for this fixture")
@@ -132,6 +178,17 @@ def test_failing_make_writes_build_log(tmp_path: Path) -> None:
     build_log = tmp_path / "artifacts" / "make-fail" / "gold" / "build.log"
     assert build_log.exists()
     assert "intentional failure from robust fixture" in build_log.read_text(encoding="utf-8")
+
+
+def _write_manifest_for_build_system(repo: Path, build_system: str) -> None:
+    if build_system == "go":
+        (repo / "go.mod").write_text("module example.com/demo\n", encoding="utf-8")
+    elif build_system == "cargo":
+        (repo / "Cargo.toml").write_text("[package]\nname='demo'\nversion='0.1.0'\n", encoding="utf-8")
+    elif build_system == "maven":
+        (repo / "pom.xml").write_text("<project></project>\n", encoding="utf-8")
+    elif build_system == "gradle":
+        (repo / "build.gradle").write_text("plugins { id 'java' }\n", encoding="utf-8")
 
 
 def _write_custom_build_spec(tmp_path: Path, task_id: str) -> None:
