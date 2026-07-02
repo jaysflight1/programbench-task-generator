@@ -62,6 +62,62 @@ class RecordedCommandBehavior(PBModel):
     source_path: str | None = None
 
 
+class ExpectedOutput(PBModel):
+    """Language-independent output assertion contract for one stream."""
+
+    exact: str | None = None
+    contains: list[str] = Field(default_factory=list)
+    regex: list[str] = Field(default_factory=list)
+
+
+class ExecutionEnvironment(PBModel):
+    """Runtime environment requested by one executable test case."""
+
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: Path | None = None
+    timeout_seconds: int = 20
+
+
+class ExecutableTestCase(PBModel):
+    """Canonical executable-level behavioral test independent of renderer language."""
+
+    test_id: str
+    task_id: str
+    args: list[str] = Field(default_factory=list)
+    stdin: str = ""
+    env: dict[str, str] = Field(default_factory=dict)
+    fixture_files: dict[str, str] = Field(default_factory=dict)
+    expected_exit_code: int
+    expected_stdout: ExpectedOutput = Field(default_factory=ExpectedOutput)
+    expected_stderr: ExpectedOutput = Field(default_factory=ExpectedOutput)
+    timeout_seconds: int = 20
+    behavior_category: str | None = None
+    source: str
+    source_path: str | None = None
+    provenance: dict[str, str] = Field(default_factory=dict)
+
+
+class ExecutableTestSuite(PBModel):
+    """Canonical generated test suite for one generation iteration."""
+
+    task_id: str
+    iteration: int
+    cases: list[ExecutableTestCase] = Field(default_factory=list)
+    generator: str | None = None
+    renderer: str | None = None
+
+
+class TestArtifactRecord(PBModel):
+    """Record linking canonical test cases to rendered artifacts."""
+
+    task_id: str
+    iteration: int
+    canonical_suite_path: Path
+    rendered_paths: list[Path] = Field(default_factory=list)
+    case_count: int
+    renderer: str
+
+
 class TaskProfile(PBModel):
     """Repository-specific settings for real ProgramBench-scale runs."""
 

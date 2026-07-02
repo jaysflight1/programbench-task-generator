@@ -13,8 +13,13 @@ from pbgen.schemas import (
     BehaviorSurface,
     CommandExample,
     CoverageGap,
+    ExecutableTestCase,
+    ExecutableTestSuite,
+    ExpectedOutput,
     RecordedCommandBehavior,
+    TestArtifactRecord,
 )
+from pbgen.serialization import write_data
 from pbgen.subprocess_utils import run_command
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
 
@@ -79,7 +84,11 @@ class LocalHeuristicTestGenerationBackend(TestGenerationBackend):
         behaviors = _record_behaviors(examples, _resolve_executable(prompt, output_dir), output_dir)
         if not behaviors:
             return []
-        test_path.write_text(_render_pytest(behaviors, prompt.iteration), encoding="utf-8")
+        suite = _test_suite_from_behaviors(prompt.task_id, behaviors, prompt.iteration)
+        suite_path = _next_case_suite_path(output_dir, prompt.iteration)
+        write_data(suite_path, suite.model_dump(mode="json"))
+        test_path.write_text(_render_pytest(suite.cases), encoding="utf-8")
+        _write_artifact_record(prompt.task_id, prompt.iteration, suite, suite_path, [test_path])
         return [test_path]
 
 
@@ -235,19 +244,66 @@ def _behavior_from_expected(example: CommandExample) -> RecordedCommandBehavior 
     )
 
 
-def _render_pytest(behaviors: list[RecordedCommandBehavior], iteration: int) -> str:
-    tests = []
+def _test_suite_from_behaviors(
+    task_id: str,
+    behaviors: list[RecordedCommandBehavior],
+    iteration: int,
+) -> ExecutableTestSuite:
+    cases = []
     for index, behavior in enumerate(behaviors):
-        name = _test_name(behavior, index, iteration)
+        cases.append(_test_case_from_behavior(task_id, behavior, index, iteration))
+    return ExecutableTestSuite(
+        task_id=task_id,
+        iteration=iteration,
+        cases=cases,
+        generator=LocalHeuristicTestGenerationBackend.prompt_version,
+        renderer="pytest",
+    )
+
+
+def _test_case_from_behavior(
+    task_id: str,
+    behavior: RecordedCommandBehavior,
+    index: int,
+    iteration: int,
+) -> ExecutableTestCase:
+    return ExecutableTestCase(
+        test_id=_test_name(behavior, index, iteration),
+        task_id=task_id,
+        args=behavior.args,
+        expected_exit_code=behavior.exit_code,
+        expected_stdout=ExpectedOutput(exact=behavior.stdout),
+        expected_stderr=ExpectedOutput(exact=behavior.stderr),
+        behavior_category=None,
+        source=behavior.source,
+        source_path=behavior.source_path,
+        provenance={"recorded_behavior_source": behavior.source},
+    )
+
+
+def _render_pytest(cases: list[ExecutableTestCase]) -> str:
+    tests = []
+    for case in cases:
         tests.append(
-            f'''def {name}() -> None:
-    result = run_cmd({behavior.args!r})
-    assert result.returncode == {behavior.exit_code!r}
-    assert result.stdout == {behavior.stdout!r}
-    assert result.stderr == {behavior.stderr!r}
+            f'''def {case.test_id}() -> None:
+    result = run_cmd({case.args!r})
+    assert result.returncode == {case.expected_exit_code!r}
+{_render_output_assertions("stdout", case.expected_stdout)}\
+{_render_output_assertions("stderr", case.expected_stderr)}\
 '''
         )
     return HEADER + "\n\n" + "\n\n".join(tests) + "\n"
+
+
+def _render_output_assertions(stream: str, expected: ExpectedOutput) -> str:
+    lines: list[str] = []
+    if expected.exact is not None:
+        lines.append(f"    assert result.{stream} == {expected.exact!r}")
+    for value in expected.contains:
+        lines.append(f"    assert {value!r} in result.{stream}")
+    for pattern in expected.regex:
+        lines.append(f"    assert re.search({pattern!r}, result.{stream})")
+    return "\n".join(lines) + ("\n" if lines else "")
 
 
 HEADER = '''"""Generated behavioral tests for the cleanroom executable."""
@@ -255,6 +311,7 @@ HEADER = '''"""Generated behavioral tests for the cleanroom executable."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -288,6 +345,40 @@ def _next_iteration_path(output_dir: Path, iteration: int) -> Path:
         if not candidate.exists():
             return candidate
         index += 1
+
+
+def _next_case_suite_path(output_dir: Path, iteration: int) -> Path:
+    stem = f"test_cases_iteration_{iteration}"
+    path = output_dir / f"{stem}.json"
+    if not path.exists():
+        return path
+    index = 1
+    while True:
+        candidate = output_dir / f"{stem}_{index:02d}.json"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _write_artifact_record(
+    task_id: str,
+    iteration: int,
+    suite: ExecutableTestSuite,
+    suite_path: Path,
+    rendered_paths: list[Path],
+) -> None:
+    record = TestArtifactRecord(
+        task_id=task_id,
+        iteration=iteration,
+        canonical_suite_path=suite_path,
+        rendered_paths=rendered_paths,
+        case_count=len(suite.cases),
+        renderer="pytest",
+    )
+    write_data(
+        suite_path.with_name(f"{suite_path.stem}_artifact.json"),
+        record.model_dump(mode="json"),
+    )
 
 
 def _resolve_executable(prompt: TestGenerationPrompt, output_dir: Path) -> Path | None:

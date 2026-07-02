@@ -1,4 +1,11 @@
-from pbgen.schemas import RewardShapeReport, SuiteQualityReport, TaskSpec
+from pbgen.schemas import (
+    ExecutableTestCase,
+    ExecutableTestSuite,
+    ExpectedOutput,
+    RewardShapeReport,
+    SuiteQualityReport,
+    TaskSpec,
+)
 
 
 def test_task_spec_serializes_to_json() -> None:
@@ -33,3 +40,42 @@ def test_quality_and_reward_include_assertion_strength_without_economic_importan
     )
     assert suite.assertion_strength_score == 1.0
     assert "economic_importance_score" not in RewardShapeReport.model_fields
+
+
+def test_executable_test_suite_serializes_canonical_cases() -> None:
+    suite = ExecutableTestSuite(
+        task_id="demo",
+        iteration=2,
+        generator="local_heuristic_v1",
+        renderer="pytest",
+        cases=[
+            ExecutableTestCase(
+                test_id="test_demo_help",
+                task_id="demo",
+                args=["--help"],
+                stdin="",
+                env={"LC_ALL": "C"},
+                fixture_files={"input.txt": "hello\n"},
+                expected_exit_code=0,
+                expected_stdout=ExpectedOutput(
+                    exact=None,
+                    contains=["Usage"],
+                    regex=[r"Commands?:"],
+                ),
+                expected_stderr=ExpectedOutput(exact=""),
+                timeout_seconds=10,
+                behavior_category="help",
+                source="docs",
+                source_path="README.md",
+                provenance={"line": "12"},
+            )
+        ],
+    )
+
+    loaded = ExecutableTestSuite.model_validate_json(suite.model_dump_json())
+
+    assert loaded.task_id == "demo"
+    assert loaded.iteration == 2
+    assert loaded.cases[0].args == ["--help"]
+    assert loaded.cases[0].expected_stdout.contains == ["Usage"]
+    assert loaded.cases[0].fixture_files == {"input.txt": "hello\n"}

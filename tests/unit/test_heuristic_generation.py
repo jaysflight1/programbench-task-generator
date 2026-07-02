@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
 
-from pbgen.schemas import BehaviorCommand, BehaviorSurface, CommandExample, CoverageGap
+from pbgen.schemas import (
+    BehaviorCommand,
+    BehaviorSurface,
+    CommandExample,
+    CoverageGap,
+    ExecutableTestSuite,
+)
 from pbgen.testgen.example_extractor import extract_behavior_hints
 from pbgen.testgen.prompt_builder import TestGenerationPrompt as GenerationPrompt
 from pbgen.testgen.test_writer import LocalHeuristicTestGenerationBackend
@@ -85,11 +92,25 @@ def test_backend_records_gold_outputs_and_appends_iteration_files(tmp_path: Path
     assert first_paths[0].name == "test_behavior_iter_0.py"
     assert second_paths[0].name == "test_behavior_iter_0_01.py"
     assert first_paths[0] != second_paths[0]
+    assert (output_dir / "test_cases_iteration_0.json").exists()
+    assert (output_dir / "test_cases_iteration_0_01.json").exists()
+    assert (output_dir / "test_cases_iteration_0_artifact.json").exists()
 
     generated = first_paths[0].read_text(encoding="utf-8")
     assert "assert result.stdout == '7\\n'" in generated
     assert "assert result.stderr == 'invalid number: not-a-number\\n'" in generated
     assert "assert result.returncode == 2" in generated
+    suite = ExecutableTestSuite.model_validate(
+        json.loads((output_dir / "test_cases_iteration_0.json").read_text(encoding="utf-8"))
+    )
+    assert suite.task_id == "calc"
+    assert suite.iteration == 0
+    assert suite.generator == "local_heuristic_v1"
+    assert any(case.args == ["calc", "3", "4"] for case in suite.cases)
+    assert any(
+        case.expected_stderr.exact == "invalid number: not-a-number\n"
+        for case in suite.cases
+    )
 
     env = os.environ.copy()
     env["PBGEN_EXECUTABLE"] = str(executable)
