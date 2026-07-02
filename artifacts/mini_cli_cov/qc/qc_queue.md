@@ -1,6 +1,0 @@
-# QC Queue
-
-| Test | Queue | Severity | Reason |
-|---|---|---|---|
-| test_iter_0_4_stats_1_2 | redundant high-assertion queue | medium | cluster 2591630c6a contains 2 similar tests |
-| test_iter_0_9_stats_1 | redundant high-assertion queue | medium | cluster 2591630c6a contains 2 similar tests |

@@ -1,9 +1,0 @@
-{
-  "candidate_median_runtime_ms": 17.103874997701496,
-  "efficiency_multiplier": 1.0148796692280573,
-  "eligible": true,
-  "reason": null,
-  "reference_median_runtime_ms": 17.358375000185333,
-  "runtime_ratio": 1.0148796692280573,
-  "task_id": "mini_cli_twostep"
-}
