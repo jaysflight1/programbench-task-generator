@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pbgen.config import PBGenConfig
+from pbgen.logging.event_log import EventLogger
 from pbgen.quality.dummy_runner import DummyBinaryRunner
 from pbgen.quality.gold_determinism import run_gold_determinism
 from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutput
@@ -46,6 +47,11 @@ def test_quality_paths_use_canonical_test_cases(tmp_path: Path) -> None:
 
     assert deterministic == 1.0
     assert dummy_rate == 0.0
+    events = EventLogger(tmp_path / "events.jsonl").read_events()
+    determinism_event = next(event for event in events if event.event_type == "determinism_check_run")
+    dummy_event = next(event for event in events if event.event_type == "dummy_check_run")
+    assert determinism_event.metrics["per_test_deterministic"] == {"test_add": True}
+    assert dummy_event.metrics["per_test_dummy_passes"] == {"test_add": False}
 
 
 def _write_cli(path: Path) -> Path:

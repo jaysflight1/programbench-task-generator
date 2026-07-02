@@ -298,6 +298,8 @@ class EfficiencyResult(PBModel):
     task_id: str
     eligible: bool
     reason: str | None = None
+    benchmark_command_count: int = 0
+    benchmark_command_sources: list[str] = Field(default_factory=list)
     reference_median_runtime_ms: float | None = None
     candidate_median_runtime_ms: float | None = None
     runtime_ratio: float | None = None

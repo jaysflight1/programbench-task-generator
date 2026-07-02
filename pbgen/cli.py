@@ -170,6 +170,7 @@ def evaluate_suite(
         paths.reports / "efficiency_manifest.json",
         config,
         benchmark_commands=benchmark_commands,
+        accepted_test_cases_path=paths.generated_tests,
     )
     return score_suite(
         task_id=task_id,

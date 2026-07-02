@@ -1,14 +1,17 @@
-"""Deterministic redundancy clustering for generated pytest tests."""
+"""Deterministic redundancy clustering for generated tests."""
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
+from pbgen.eval.executable_runner import load_canonical_suites
 from pbgen.logging.event_log import EventLogger
-from pbgen.schemas import RedundancyItem, RedundancyReport
+from pbgen.schemas import ExecutableTestCase, ExpectedOutput, RedundancyItem, RedundancyReport
 from pbgen.serialization import write_data
 
 
@@ -23,12 +26,7 @@ class RedundancyAnalyzer:
         event_log_path: Path,
         iteration: int | None = None,
     ) -> RedundancyReport:
-        signatures: dict[str, str] = {}
-        for path in sorted(tests_path.rglob("test_*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in tree.body:
-                if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-                    signatures[node.name] = _signature(node)
+        signatures = _canonical_signatures(tests_path) or _pytest_signatures(tests_path)
 
         clusters: dict[str, list[str]] = defaultdict(list)
         for test_name, signature in signatures.items():
@@ -63,7 +61,66 @@ class RedundancyAnalyzer:
         return report
 
 
-def _signature(function: ast.FunctionDef) -> str:
+def _canonical_signatures(tests_path: Path) -> dict[str, str]:
+    signatures: dict[str, str] = {}
+    for suite in load_canonical_suites(tests_path):
+        for case in suite.cases:
+            signatures[case.test_id] = _case_signature(case)
+    return signatures
+
+
+def _pytest_signatures(tests_path: Path) -> dict[str, str]:
+    signatures: dict[str, str] = {}
+    for path in sorted(tests_path.rglob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+                signatures[node.name] = _pytest_signature(node)
+    return signatures
+
+
+def _case_signature(case: ExecutableTestCase) -> str:
+    payload = {
+        "command": [_text_shape(arg) for arg in case.args],
+        "stdin_shape": _text_shape(case.stdin),
+        "env_keys": sorted(case.env),
+        "fixture_paths": sorted(case.fixture_files),
+        "expected_exit_code": case.expected_exit_code,
+        "expected_stdout": _expected_output_signature(case.expected_stdout),
+        "expected_stderr": _expected_output_signature(case.expected_stderr),
+        "behavior_category": case.behavior_category or "unknown",
+        "source_path": case.source_path or "",
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _expected_output_signature(expected: ExpectedOutput) -> dict[str, object]:
+    return {
+        "exact": _text_shape(expected.exact or ""),
+        "contains": [_text_shape(value) for value in expected.contains],
+        "regex": sorted(expected.regex),
+        "assertion_shape": _assertion_shape(expected),
+    }
+
+
+def _assertion_shape(expected: ExpectedOutput) -> list[str]:
+    shape: list[str] = []
+    if expected.exact is not None:
+        shape.append("exact")
+    if expected.contains:
+        shape.append("contains")
+    if expected.regex:
+        shape.append("regex")
+    return shape
+
+
+def _text_shape(text: str) -> str:
+    normalized = re.sub(r"\d+", "<num>", text.strip().lower())
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
+def _pytest_signature(function: ast.FunctionDef) -> str:
     command_tokens: list[str] = []
     assertion_shapes: list[str] = []
     for node in ast.walk(function):
