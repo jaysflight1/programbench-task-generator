@@ -184,8 +184,8 @@ Task execution is controlled by an execution policy:
 
 - `trusted-local` for explicitly trusted local repos.
 - `sandboxed-local` for conservative local execution with command filtering.
-- `docker-no-network` as a policy representation for no-network container execution
-  where supported by the environment.
+- `docker-no-network` for no-network container execution of candidate source
+  builds and canonical hidden tests where Docker is available.
 
 Profiles can declare safe command allow/deny patterns. Generated tests and model
 proposals are validated before execution. Destructive/network/package-install
@@ -266,8 +266,13 @@ virtualenvs, build outputs, egg-info, and machine-specific files.
 - Go, Rust, and Java adapters currently provide build skeletons and structured
   diagnostics; coverage and richer behavior discovery remain planned extensions.
 - Model-backed generation is optional and must be explicitly selected/configured.
-- Docker/no-network execution policy is represented, but actual container isolation
-  depends on the local environment and available runtime.
+- Docker/no-network execution depends on the local Docker runtime and a configured
+  image. To run the optional live smoke test, set `PBGEN_DOCKER_TEST_IMAGE` to a
+  locally available image, for example `python:3.11-slim`, then run:
+
+```bash
+PBGEN_DOCKER_TEST_IMAGE=python:3.11-slim .venv/bin/pytest tests/integration/test_docker_no_network_execution.py -q
+```
 - Real full-size repo runs should be treated as a separate validation step after
   selecting target repositories and profiles.
 
