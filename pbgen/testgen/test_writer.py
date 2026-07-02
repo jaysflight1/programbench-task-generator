@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+from typing import Any
 
+from pbgen.config import PBGenConfig
+from pbgen.errors import TestGenerationError
 from pbgen.schemas import (
     BehaviorCommand,
     BehaviorSurface,
@@ -61,7 +66,7 @@ HELP_FLAGS = {"-h", "--help", "help"}
 NUMERIC_WORDS = {"NUM", "NUMBER", "INT", "INTEGER", "FLOAT", "DECIMAL"}
 FILE_WORDS = {"FILE", "PATH", "DIR", "DIRECTORY"}
 INVALID_NUMERIC_VALUE = "not-a-number"
-MAX_CANDIDATES = 32
+DEFAULT_AGENTIC_CANDIDATE_BUDGET = 256
 MAX_CAPTURED_OUTPUT_CHARS = 20_000
 
 
@@ -73,20 +78,54 @@ class TestGenerationBackend(ABC):
         """Generate pytest files and return their paths."""
 
 
-class LocalHeuristicTestGenerationBackend(TestGenerationBackend):
-    """Deterministic local backend used by the MVP and demo."""
+@dataclass(frozen=True)
+class _CaseProposal:
+    args: list[str]
+    source: str
+    source_path: str | None = None
+    behavior_category: str | None = None
+    stdin: str = ""
+    env: dict[str, str] | None = None
+    fixture_files: dict[str, str] | None = None
+    provenance: dict[str, str] | None = None
 
-    prompt_version = "local_heuristic_v1"
+
+class AgenticTestGenerationBackend(TestGenerationBackend):
+    """Deterministic agentic backend with proposal, gold-observation, and revision."""
+
+    prompt_version = "local_agentic_v1"
+
+    def __init__(self, config: PBGenConfig | None = None) -> None:
+        self.config = config or PBGenConfig()
 
     def generate_tests(self, prompt: TestGenerationPrompt, output_dir: Path) -> list[Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
         test_path = _next_iteration_path(output_dir, prompt.iteration)
-        examples = _examples_for_prompt(prompt)
-        behaviors = _record_behaviors(prompt, examples, _resolve_executable(prompt, output_dir), output_dir)
-        if not behaviors:
+        proposals = _case_proposals_for_prompt(
+            prompt,
+            budget=self.config.agentic_candidate_budget,
+        )
+        cases, diagnostics = _observe_and_revise_proposals(
+            prompt,
+            proposals,
+            _resolve_executable(prompt, output_dir),
+            revision_rounds=self.config.agentic_revision_rounds,
+        )
+        _write_agentic_diagnostics(output_dir, prompt.iteration, diagnostics)
+        if not cases:
             return []
-        suite = _test_suite_from_behaviors(prompt.task_id, behaviors, prompt.iteration)
+        suite = ExecutableTestSuite(
+            task_id=prompt.task_id,
+            iteration=prompt.iteration,
+            cases=cases,
+            generator=self.prompt_version,
+            renderer="pytest",
+        )
         return write_executable_test_suite(output_dir, suite, rendered_path=test_path)
+
+
+class LocalHeuristicTestGenerationBackend(AgenticTestGenerationBackend):
+    """Backward-compatible name for the deterministic local agentic backend."""
 
 
 @dataclass(frozen=True)
@@ -118,7 +157,340 @@ def render_pytest_compatibility(cases: list[ExecutableTestCase]) -> str:
     return _render_pytest(cases)
 
 
-def _examples_for_prompt(prompt: TestGenerationPrompt) -> list[CommandExample]:
+def _case_proposals_for_prompt(
+    prompt: TestGenerationPrompt,
+    *,
+    budget: int,
+) -> list[_CaseProposal]:
+    proposals: list[_CaseProposal] = [
+        _proposal_from_example(example)
+        for example in _examples_for_prompt(prompt, budget=budget)
+    ]
+    proposals.extend(_stdin_proposals(prompt.behavior_surface))
+    proposals.extend(_file_input_proposals(prompt.behavior_surface))
+    proposals.extend(_env_config_proposals(prompt.behavior_surface))
+    proposals.extend(_side_effect_proposals(prompt.behavior_surface))
+    proposals.extend(_coverage_edge_proposals(prompt.behavior_surface, prompt.coverage_gaps))
+    safe = [proposal for proposal in proposals if _is_safe_proposal(prompt, proposal)]
+    return _dedupe_proposals(safe)[: max(1, budget)]
+
+
+def _proposal_from_example(example: CommandExample) -> _CaseProposal:
+    return _CaseProposal(
+        args=example.args,
+        source=example.source,
+        source_path=example.source_path,
+        behavior_category=example.category,
+        provenance={"example_source": example.source},
+    )
+
+
+def _stdin_proposals(surface: BehaviorSurface) -> list[_CaseProposal]:
+    if not surface.stdin_supported:
+        return []
+    commands = [
+        command.command
+        for command in surface.commands
+        if command.category == "subcommand" and not command.command.startswith("-")
+    ]
+    args_variants = [[command] for command in commands[:16]] or [[]]
+    return [
+        _CaseProposal(
+            args=args,
+            stdin="sample stdin\nsecond line\n",
+            source="agentic-stdin",
+            behavior_category="stdin",
+            provenance={"stdin_supported": "true"},
+        )
+        for args in args_variants
+    ]
+
+
+def _file_input_proposals(surface: BehaviorSurface) -> list[_CaseProposal]:
+    file_inputs = surface.file_inputs or ["input.txt"]
+    commands = [
+        command.command
+        for command in surface.commands
+        if command.category == "subcommand" and not command.command.startswith("-")
+    ]
+    proposals: list[_CaseProposal] = []
+    for index, file_input in enumerate(file_inputs[:16]):
+        fixture_name = _safe_fixture_name(file_input, fallback=f"input_{index}.txt")
+        content = f"sample file payload {index}\n"
+        if commands:
+            for command in commands[:16]:
+                proposals.append(
+                    _CaseProposal(
+                        args=[command, fixture_name],
+                        fixture_files={fixture_name: content},
+                        source="agentic-file-input",
+                        behavior_category="file-input",
+                    )
+                )
+        else:
+            proposals.append(
+                _CaseProposal(
+                    args=[fixture_name],
+                    fixture_files={fixture_name: content},
+                    source="agentic-file-input",
+                    behavior_category="file-input",
+                )
+            )
+    return proposals
+
+
+def _env_config_proposals(surface: BehaviorSurface) -> list[_CaseProposal]:
+    proposals: list[_CaseProposal] = []
+    help_args = ["--help"] if "--help" in surface.global_flags else []
+    env_vars = [_safe_env_name(name) for name in surface.env_vars]
+    for env_name in [name for name in env_vars if name][:24]:
+        proposals.append(
+            _CaseProposal(
+                args=help_args,
+                env={env_name: "pbgen-sample-value"},
+                source="agentic-env",
+                behavior_category="env",
+                provenance={"env_var": env_name},
+            )
+        )
+    config_flags = [
+        flag
+        for flag in surface.global_flags
+        if flag in {"--config", "-c", "--config-file"}
+    ]
+    for index, config_file in enumerate(surface.config_files[:12]):
+        fixture_name = _safe_fixture_name(config_file, fallback=f"config_{index}.json")
+        args = [config_flags[0], fixture_name] if config_flags else [fixture_name]
+        proposals.append(
+            _CaseProposal(
+                args=args,
+                fixture_files={fixture_name: '{"mode": "sample"}\n'},
+                source="agentic-config",
+                behavior_category="config",
+            )
+        )
+    return proposals
+
+
+def _side_effect_proposals(surface: BehaviorSurface) -> list[_CaseProposal]:
+    if not surface.side_effects:
+        return []
+    proposals: list[_CaseProposal] = []
+    side_terms = _gap_terms(" ".join(surface.side_effects).lower())
+    for command in surface.commands:
+        if command.command.startswith("-"):
+            continue
+        if _term_variants(command.command) & side_terms:
+            proposals.append(
+                _CaseProposal(
+                    args=[command.command],
+                    source="agentic-side-effect",
+                    behavior_category="side-effect",
+                    provenance={"side_effects": " ".join(surface.side_effects[:4])},
+                )
+            )
+    return proposals
+
+
+def _coverage_edge_proposals(
+    surface: BehaviorSurface,
+    gaps: list[CoverageGap],
+) -> list[_CaseProposal]:
+    if not gaps:
+        return []
+    gap_text = _gap_text(gaps)
+    proposals: list[_CaseProposal] = []
+    for command in surface.commands:
+        if command.command.startswith("-") or command.category != "subcommand":
+            continue
+        plan = _signature_plan_for_command(command)
+        if plan is None or not plan.numeric:
+            continue
+        for value in ["0", "-1", "999999999", INVALID_NUMERIC_VALUE]:
+            proposals.append(
+                _CaseProposal(
+                    args=[command.command, value],
+                    source="agentic-coverage-gap",
+                    behavior_category="edge-case",
+                    provenance={"coverage_gap": gap_text[:500]},
+                )
+            )
+    return proposals
+
+
+def _observe_and_revise_proposals(
+    prompt: TestGenerationPrompt,
+    proposals: list[_CaseProposal],
+    executable_path: Path | None,
+    *,
+    revision_rounds: int,
+) -> tuple[list[ExecutableTestCase], list[dict[str, Any]]]:
+    diagnostics: list[dict[str, Any]] = []
+    accepted: list[ExecutableTestCase] = []
+    seen: set[str] = set()
+    if executable_path is None:
+        diagnostics.append(
+            {
+                "accepted": False,
+                "reason": "gold executable unavailable; no tests written",
+            }
+        )
+        return [], diagnostics
+    for index, proposal in enumerate(proposals):
+        observed: ExecutableTestCase | None = None
+        last_error: str | None = None
+        revision_round = 0
+        for revision_round, revised_proposal in enumerate(
+            _proposal_revision_attempts(proposal, revision_rounds)
+        ):
+            try:
+                case = _case_from_proposal(prompt, revised_proposal, index)
+                observed = _observe_case_on_gold(case, executable_path)
+                break
+            except TestGenerationError as exc:
+                last_error = str(exc)
+        if observed is None:
+            diagnostics.append(
+                {
+                    "accepted": False,
+                    "proposal_index": index,
+                    "args": proposal.args,
+                    "reason": last_error or "proposal could not be observed on gold",
+                }
+            )
+            continue
+        signature = _case_signature(observed)
+        if signature in seen:
+            diagnostics.append(
+                {
+                    "accepted": False,
+                    "proposal_index": index,
+                    "test_id": observed.test_id,
+                    "args": observed.args,
+                    "reason": "duplicate observed behavior",
+                }
+            )
+            continue
+        seen.add(signature)
+        accepted.append(observed)
+        diagnostics.append(
+            {
+                "accepted": True,
+                "proposal_index": index,
+                "test_id": observed.test_id,
+                "args": observed.args,
+                "behavior_category": observed.behavior_category,
+                "revision_round": revision_round,
+                "revision": "expected behavior replaced with observed gold behavior",
+            }
+        )
+    return accepted, diagnostics
+
+
+def _proposal_revision_attempts(
+    proposal: _CaseProposal,
+    revision_rounds: int,
+) -> list[_CaseProposal]:
+    attempts = [proposal]
+    if proposal.stdin:
+        attempts.append(
+            replace(
+                proposal,
+                stdin="sample stdin\n",
+                provenance={
+                    **(proposal.provenance or {}),
+                    "revision": "simplified stdin payload",
+                },
+            )
+        )
+    if proposal.fixture_files:
+        attempts.append(
+            replace(
+                proposal,
+                fixture_files={name: "sample\n" for name in proposal.fixture_files},
+                provenance={
+                    **(proposal.provenance or {}),
+                    "revision": "simplified fixture payload",
+                },
+            )
+        )
+    if proposal.args and proposal.args[-1] == INVALID_NUMERIC_VALUE:
+        attempts.append(
+            replace(
+                proposal,
+                args=[*proposal.args[:-1], "0"],
+                provenance={
+                    **(proposal.provenance or {}),
+                    "revision": "replaced invalid numeric edge with zero",
+                },
+            )
+        )
+    return attempts[: max(1, revision_rounds)]
+
+
+def _case_from_proposal(
+    prompt: TestGenerationPrompt,
+    proposal: _CaseProposal,
+    index: int,
+) -> ExecutableTestCase:
+    return ExecutableTestCase(
+        test_id=_test_name_from_args(proposal.args, index, prompt.iteration),
+        task_id=prompt.task_id,
+        args=proposal.args,
+        stdin=proposal.stdin,
+        env=proposal.env or {},
+        fixture_files=proposal.fixture_files or {},
+        expected_exit_code=0,
+        behavior_category=proposal.behavior_category,
+        source=proposal.source,
+        source_path=proposal.source_path,
+        provenance=proposal.provenance or {},
+    )
+
+
+def _observe_case_on_gold(case: ExecutableTestCase, executable_path: Path) -> ExecutableTestCase:
+    with tempfile.TemporaryDirectory(prefix="pbgen-agentic-case-") as temp_dir:
+        cwd = Path(temp_dir)
+        fixture_error = _write_fixture_files(cwd, case.fixture_files)
+        if fixture_error:
+            raise TestGenerationError(fixture_error)
+        env = os.environ.copy()
+        env.update(case.env)
+        try:
+            result = run_command(
+                [str(executable_path), *case.args],
+                cwd=cwd,
+                env=env,
+                stdin=case.stdin,
+                timeout_seconds=case.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TestGenerationError(
+                f"gold observation timed out after {case.timeout_seconds}s"
+            ) from exc
+        except OSError as exc:
+            raise TestGenerationError(f"could not observe gold behavior: {exc}") from exc
+    if len(result.stdout) + len(result.stderr) > MAX_CAPTURED_OUTPUT_CHARS:
+        raise TestGenerationError("gold output exceeded capture limit")
+    return case.model_copy(
+        update={
+            "expected_exit_code": result.returncode,
+            "expected_stdout": ExpectedOutput(exact=result.stdout),
+            "expected_stderr": ExpectedOutput(exact=result.stderr),
+            "provenance": {
+                **case.provenance,
+                "gold_observed": "true",
+                "revision": "observed_gold_behavior",
+            },
+        }
+    )
+
+
+def _examples_for_prompt(
+    prompt: TestGenerationPrompt,
+    *,
+    budget: int = DEFAULT_AGENTIC_CANDIDATE_BUDGET,
+) -> list[CommandExample]:
     examples = [
         example
         for example in prompt.behavior_surface.command_examples
@@ -128,7 +500,7 @@ def _examples_for_prompt(prompt: TestGenerationPrompt) -> list[CommandExample]:
     examples.extend(_examples_for_gaps(prompt.behavior_surface, prompt.coverage_gaps))
     if not examples:
         examples.extend(_fallback_examples(prompt.behavior_surface))
-    return _dedupe_examples(examples)[:MAX_CANDIDATES]
+    return _dedupe_examples(examples)[: max(1, budget)]
 
 
 def _examples_from_surface(surface: BehaviorSurface) -> list[CommandExample]:
@@ -554,6 +926,125 @@ def _is_safe_example(prompt: TestGenerationPrompt, args: list[str]) -> bool:
         command_kind="generated-test",
     )
     return decision.allowed
+
+
+def _is_safe_proposal(prompt: TestGenerationPrompt, proposal: _CaseProposal) -> bool:
+    if not _is_safe_example(prompt, proposal.args):
+        return False
+    for fixture_path in (proposal.fixture_files or {}):
+        path = Path(fixture_path)
+        if path.is_absolute() or ".." in path.parts:
+            return False
+    for key in (proposal.env or {}):
+        if _safe_env_name(key) != key:
+            return False
+    values = [
+        *proposal.args,
+        proposal.stdin,
+        *(proposal.env or {}).values(),
+        *(proposal.fixture_files or {}).keys(),
+    ]
+    if any(value.startswith(("http://", "https://", "ssh://", "git@")) for value in values):
+        return False
+    return True
+
+
+def _write_fixture_files(cwd: Path, fixture_files: dict[str, str]) -> str | None:
+    for relative, content in fixture_files.items():
+        path = Path(relative)
+        if path.is_absolute() or ".." in path.parts:
+            return f"unsafe fixture path: {relative}"
+        target = cwd / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return None
+
+
+def _safe_fixture_name(value: str, *, fallback: str) -> str:
+    name = value.strip() or fallback
+    name = name.replace("\\", "/")
+    name = name.rsplit("/", maxsplit=1)[-1]
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")
+    if not name:
+        name = fallback
+    if "." not in name:
+        name = f"{name}.txt"
+    return name
+
+
+def _safe_env_name(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip().upper())
+    if not cleaned:
+        return ""
+    if cleaned[0].isdigit():
+        cleaned = f"PBGEN_{cleaned}"
+    return cleaned
+
+
+def _dedupe_proposals(proposals: list[_CaseProposal]) -> list[_CaseProposal]:
+    seen: set[str] = set()
+    deduped: list[_CaseProposal] = []
+    for proposal in proposals:
+        signature = _proposal_signature(proposal)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduped.append(proposal)
+    return deduped
+
+
+def _proposal_signature(proposal: _CaseProposal) -> str:
+    return repr(
+        (
+            proposal.args,
+            proposal.stdin,
+            sorted((proposal.env or {}).items()),
+            sorted((proposal.fixture_files or {}).items()),
+        )
+    )
+
+
+def _case_signature(case: ExecutableTestCase) -> str:
+    return repr(
+        (
+            case.args,
+            case.stdin,
+            sorted(case.env.items()),
+            sorted(case.fixture_files.items()),
+            case.expected_exit_code,
+            case.expected_stdout.model_dump(mode="json"),
+            case.expected_stderr.model_dump(mode="json"),
+        )
+    )
+
+
+def _test_name_from_args(args: list[str], index: int, iteration: int) -> str:
+    tokens = [re.sub(r"[^a-zA-Z0-9_]+", "_", token).strip("_") for token in args[:3]]
+    suffix = "_".join(token.lower() for token in tokens if token) or "empty"
+    return f"test_iter_{iteration}_{index}_{suffix}"
+
+
+def _write_agentic_diagnostics(
+    output_dir: Path,
+    iteration: int,
+    diagnostics: list[dict[str, Any]],
+) -> None:
+    accepted = sum(1 for item in diagnostics if item.get("accepted") is True)
+    rejected = sum(1 for item in diagnostics if item.get("accepted") is False)
+    write_data(
+        _agentic_diagnostic_path(output_dir, iteration),
+        {
+            "iteration": iteration,
+            "prompt_version": AgenticTestGenerationBackend.prompt_version,
+            "accepted": accepted,
+            "rejected": rejected,
+            "diagnostics": diagnostics,
+        },
+    )
+
+
+def _agentic_diagnostic_path(output_dir: Path, iteration: int) -> Path:
+    return output_dir.parent / "reports" / f"agentic_generation_iteration_{iteration}.json"
 
 
 def _dedupe_examples(examples: list[CommandExample]) -> list[CommandExample]:

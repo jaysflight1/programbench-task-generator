@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+from pbgen.config import PBGenConfig
 from pbgen.schemas import (
     BehaviorCommand,
     BehaviorSurface,
@@ -15,7 +16,7 @@ from pbgen.schemas import (
 )
 from pbgen.testgen.example_extractor import extract_behavior_hints
 from pbgen.testgen.prompt_builder import TestGenerationPrompt as GenerationPrompt
-from pbgen.testgen.test_writer import LocalHeuristicTestGenerationBackend
+from pbgen.testgen.test_writer import AgenticTestGenerationBackend, LocalHeuristicTestGenerationBackend
 
 
 def test_extract_behavior_hints_parses_docs_help_and_inline_examples() -> None:
@@ -105,11 +106,20 @@ def test_backend_records_gold_outputs_and_appends_iteration_files(tmp_path: Path
     )
     assert suite.task_id == "calc"
     assert suite.iteration == 0
-    assert suite.generator == "local_heuristic_v1"
+    assert suite.generator == "local_agentic_v1"
     assert any(case.args == ["calc", "3", "4"] for case in suite.cases)
     assert any(
         case.expected_stderr.exact == "invalid number: not-a-number\n"
         for case in suite.cases
+    )
+    diagnostics = json.loads(
+        (tmp_path / "reports" / "agentic_generation_iteration_0.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert diagnostics["accepted"] == len(suite.cases)
+    assert diagnostics["diagnostics"][0]["revision"] == (
+        "expected behavior replaced with observed gold behavior"
     )
 
     env = os.environ.copy()
@@ -154,6 +164,77 @@ def test_backend_filters_examples_with_execution_policy(tmp_path: Path) -> None:
     assert any(case.args == ["--help"] for case in suite.cases)
 
 
+def test_agentic_backend_generates_stdin_file_env_and_config_cases(tmp_path: Path) -> None:
+    executable = _write_context_gold(tmp_path / "context_program")
+    output_dir = tmp_path / "generated_tests"
+    surface = BehaviorSurface(
+        task_id="context",
+        commands=[
+            BehaviorCommand(command="stdin", category="subcommand"),
+            BehaviorCommand(command="read", category="subcommand"),
+        ],
+        global_flags=["--config"],
+        stdin_supported=True,
+        file_inputs=["input.txt"],
+        config_files=["config.json"],
+        env_vars=["PBGEN_MODE"],
+    )
+    prompt = GenerationPrompt(
+        task_id="context",
+        behavior_surface=surface,
+        iteration=0,
+        executable_path=executable,
+    )
+
+    AgenticTestGenerationBackend(PBGenConfig(workspace_root=tmp_path)).generate_tests(
+        prompt,
+        output_dir,
+    )
+    suite = ExecutableTestSuite.model_validate(
+        json.loads((output_dir / "test_cases_iteration_0.json").read_text(encoding="utf-8"))
+    )
+    stdin_case = next(case for case in suite.cases if case.args == ["stdin"] and case.stdin)
+    file_case = next(case for case in suite.cases if case.args == ["read", "input.txt"])
+    env_case = next(case for case in suite.cases if case.behavior_category == "env")
+    config_case = next(case for case in suite.cases if case.behavior_category == "config")
+
+    assert stdin_case.stdin
+    assert stdin_case.expected_stdout.exact == "stdin=sample stdin\nsecond line\n"
+    assert file_case.fixture_files == {"input.txt": "sample file payload 0\n"}
+    assert file_case.expected_stdout.exact == "file=sample file payload 0\n"
+    assert env_case.env == {"PBGEN_MODE": "pbgen-sample-value"}
+    assert env_case.expected_stdout.exact == "env=pbgen-sample-value\n"
+    assert config_case.fixture_files == {"config.json": '{"mode": "sample"}\n'}
+    assert config_case.expected_stdout.exact == 'config={"mode": "sample"}\n'
+
+
+def test_agentic_backend_honors_large_candidate_budget(tmp_path: Path) -> None:
+    executable = _write_echo_gold(tmp_path / "echo_program")
+    output_dir = tmp_path / "generated_tests"
+    examples = [
+        CommandExample(args=["case", str(index)], source="docs", category="example")
+        for index in range(240)
+    ]
+    surface = BehaviorSurface(task_id="bulk", command_examples=examples)
+    prompt = GenerationPrompt(
+        task_id="bulk",
+        behavior_surface=surface,
+        iteration=0,
+        executable_path=executable,
+    )
+
+    AgenticTestGenerationBackend(
+        PBGenConfig(workspace_root=tmp_path, agentic_candidate_budget=200)
+    ).generate_tests(prompt, output_dir)
+    suite = ExecutableTestSuite.model_validate(
+        json.loads((output_dir / "test_cases_iteration_0.json").read_text(encoding="utf-8"))
+    )
+
+    assert len(suite.cases) == 200
+    assert suite.cases[0].args == ["case", "0"]
+    assert suite.cases[-1].args == ["case", "199"]
+
+
 def _write_fake_gold(path: Path) -> Path:
     path.write_text(
         """#!/usr/bin/env python3
@@ -179,6 +260,56 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
+def _write_context_gold(path: Path) -> Path:
+    path.write_text(
+        """#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import sys
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["stdin"]:
+        print(f"stdin={sys.stdin.read().rstrip()}")
+        return 0
+    if argv == ["read", "input.txt"]:
+        print(f"file={Path('input.txt').read_text(encoding='utf-8').rstrip()}")
+        return 0
+    if argv == []:
+        print(f"env={os.environ.get('PBGEN_MODE', '')}")
+        return 0
+    if argv == ["--config", "config.json"]:
+        print(f"config={Path('config.json').read_text(encoding='utf-8').rstrip()}")
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+    return path
+
+
+def _write_echo_gold(path: Path) -> Path:
+    path.write_text(
+        """#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+
+print(" ".join(sys.argv[1:]))
 """,
         encoding="utf-8",
     )

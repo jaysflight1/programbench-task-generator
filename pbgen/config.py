@@ -33,6 +33,8 @@ class PBGenConfig(BaseModel):
     coverage_target: float = 0.80
     min_coverage_delta_per_iteration: float = 0.01
     max_generation_iterations: int = 5
+    agentic_candidate_budget: int = 256
+    agentic_revision_rounds: int = 2
     allow_network_dependency_fetch: bool = False
     allow_custom_build_command: bool = False
     trusted_local_execution: bool = False
