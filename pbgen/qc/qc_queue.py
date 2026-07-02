@@ -19,6 +19,8 @@ def build_qc_queue(
     dummy_pass_rate: float,
     redundancy_report: RedundancyReport,
     iteration: int | None = None,
+    per_test_deterministic: dict[str, bool] | None = None,
+    per_test_dummy_passes: dict[str, bool] | None = None,
 ) -> QCQueueReport:
     """Create QC items for weak, flaky, dummy-passing, and redundant tests."""
 
@@ -46,6 +48,19 @@ def build_qc_queue(
                 iteration=iteration,
             )
         )
+        for test_id, deterministic in sorted((per_test_deterministic or {}).items()):
+            if deterministic:
+                continue
+            items.append(
+                QCItem(
+                    test_id=test_id,
+                    queue="flaky test queue",
+                    reason="test failed the gold determinism hard gate",
+                    severity="high",
+                    recommendation=RECOMMENDATIONS_BY_QUEUE["flaky test queue"],
+                    iteration=iteration,
+                )
+            )
     if dummy_pass_rate > 0.0:
         items.append(
             QCItem(
@@ -57,6 +72,19 @@ def build_qc_queue(
                 iteration=iteration,
             )
         )
+        for test_id, passed_dummy in sorted((per_test_dummy_passes or {}).items()):
+            if not passed_dummy:
+                continue
+            items.append(
+                QCItem(
+                    test_id=test_id,
+                    queue="dummy-passing test queue",
+                    reason="test passed at least one dummy executable hard gate",
+                    severity="high",
+                    recommendation=RECOMMENDATIONS_BY_QUEUE["dummy-passing test queue"],
+                    iteration=iteration,
+                )
+            )
     for redundant_item in redundancy_report.items:
         if redundant_item.cluster_size > 1:
             items.append(

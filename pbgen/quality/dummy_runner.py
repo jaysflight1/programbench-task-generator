@@ -7,7 +7,7 @@ import stat
 
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
-from pbgen.schemas import TestRunResult
+from pbgen.schemas import DummyRunReport, TestRunResult
 
 
 class DummyBinaryRunner:
@@ -21,6 +21,26 @@ class DummyBinaryRunner:
         event_log_path: Path,
         iteration: int | None = None,
     ) -> float:
+        """Return the per-test dummy pass rate."""
+
+        return self.run_details(
+            task_id,
+            tests_path,
+            work_dir,
+            event_log_path,
+            iteration=iteration,
+        ).dummy_pass_rate
+
+    def run_details(
+        self,
+        task_id: str,
+        tests_path: Path,
+        work_dir: Path,
+        event_log_path: Path,
+        iteration: int | None = None,
+    ) -> DummyRunReport:
+        """Create dummy binaries and return per-test rejection details."""
+
         work_dir.mkdir(parents=True, exist_ok=True)
         dummy_paths = [
             self._write_dummy(work_dir / "always_zero", "import sys\nsys.exit(0)\n"),
@@ -32,6 +52,10 @@ class DummyBinaryRunner:
             for dummy in dummy_paths
         }
         dummy_pass_rate = _per_test_dummy_pass_rate(results)
+        dummy_pass_rates = {
+            name: result.pass_rate for name, result in sorted(results.items())
+        }
+        per_test_dummy_passes = _per_test_dummy_passes(results)
         EventLogger(event_log_path).append(
             task_id=task_id,
             stage="quality",
@@ -40,13 +64,16 @@ class DummyBinaryRunner:
             metrics={
                 "dummy_pass_rate": dummy_pass_rate,
                 "dummies": len(dummy_paths),
-                "dummy_pass_rates": {
-                    name: result.pass_rate for name, result in sorted(results.items())
-                },
-                "per_test_dummy_passes": _per_test_dummy_passes(results),
+                "dummy_pass_rates": dummy_pass_rates,
+                "per_test_dummy_passes": per_test_dummy_passes,
             },
         )
-        return dummy_pass_rate
+        return DummyRunReport(
+            task_id=task_id,
+            dummy_pass_rate=dummy_pass_rate,
+            dummy_pass_rates=dummy_pass_rates,
+            per_test_dummy_passes=per_test_dummy_passes,
+        )
 
     def _write_dummy(self, path: Path, body: str) -> Path:
         path.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")

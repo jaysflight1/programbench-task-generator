@@ -10,8 +10,7 @@ from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
 from pbgen.qc.qc_queue import build_qc_queue
 from pbgen.quality.assertion_linter import AssertionQualityLinter
-from pbgen.quality.dummy_runner import DummyBinaryRunner
-from pbgen.quality.gold_determinism import run_gold_determinism
+from pbgen.quality.hard_gates import apply_hard_quality_gates
 from pbgen.quality.redundancy import RedundancyAnalyzer
 from pbgen.schemas import BehaviorSurface, CoverageGap, TaskSpec
 from pbgen.serialization import read_data, write_data
@@ -74,6 +73,7 @@ class CoverageGuidedTestController:
             )
             result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             self._run_iteration_quality_gates(task_id, iteration, paths, logger)
+            result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             coverage_report = None
             if self.config.coverage_enabled:
                 try:
@@ -156,20 +156,31 @@ class CoverageGuidedTestController:
             iteration=iteration,
             metrics={"high": lint_report.high_count, "medium": lint_report.medium_count},
         )
-        deterministic_rate = run_gold_determinism(
-            task_id,
-            paths.generated_tests,
-            paths.executable,
-            paths.event_log,
-            self.config,
+        pre_filter_lint_report = lint_report
+        hard_gate_result = apply_hard_quality_gates(
+            task_id=task_id,
+            tests_path=paths.generated_tests,
+            executable_path=paths.executable,
+            lint_report=lint_report,
+            dummy_work_dir=paths.root / "dummies" / f"iteration_{iteration}",
+            report_path=paths.reports / f"hard_gate_report_iteration_{iteration}.json",
+            event_log_path=paths.event_log,
+            config=self.config,
             iteration=iteration,
         )
-        dummy_pass_rate = DummyBinaryRunner().run(
-            task_id,
-            paths.generated_tests,
-            paths.root / "dummies" / f"iteration_{iteration}",
-            paths.event_log,
+        deterministic_rate = hard_gate_result.determinism_report.deterministic_pass_rate
+        dummy_pass_rate = hard_gate_result.dummy_report.dummy_pass_rate
+        lint_report = AssertionQualityLinter(self.config).lint_path(task_id, paths.generated_tests)
+        write_data(
+            paths.reports / f"lint_report_iteration_{iteration}_accepted.json",
+            lint_report.model_dump(mode="json"),
+        )
+        logger.append(
+            task_id=task_id,
+            stage="quality",
+            event_type="accepted_tests_linted",
             iteration=iteration,
+            metrics={"high": lint_report.high_count, "medium": lint_report.medium_count},
         )
         redundancy_report = RedundancyAnalyzer().analyze(
             task_id,
@@ -180,11 +191,13 @@ class CoverageGuidedTestController:
         )
         qc_report = build_qc_queue(
             task_id,
-            lint_report,
+            pre_filter_lint_report,
             deterministic_rate,
             dummy_pass_rate,
             redundancy_report,
             iteration=iteration,
+            per_test_deterministic=hard_gate_result.determinism_report.per_test_deterministic,
+            per_test_dummy_passes=hard_gate_result.dummy_report.per_test_dummy_passes,
         )
         write_data(
             paths.qc / f"qc_queue_iteration_{iteration}.json",

@@ -17,7 +17,8 @@ from pbgen.errors import PBGenError
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.quality.assertion_linter import lint_and_log
 from pbgen.quality.dummy_runner import DummyBinaryRunner
-from pbgen.quality.gold_determinism import run_gold_determinism
+from pbgen.quality.gold_determinism import run_gold_determinism_details
+from pbgen.quality.hard_gates import apply_hard_quality_gates
 from pbgen.quality.redundancy import RedundancyAnalyzer
 from pbgen.quality.suite_scorer import score_suite
 from pbgen.pipeline import run_batch_manifest, run_task_profile
@@ -175,19 +176,33 @@ def evaluate_suite(
     paths = ArtifactPaths(config, task_id)
     gold_result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
     lint_report = lint_and_log(task_id, paths.generated_tests, paths.event_log, config)
-    deterministic_rate = run_gold_determinism(
+    apply_hard_quality_gates(
+        task_id=task_id,
+        tests_path=paths.generated_tests,
+        executable_path=paths.executable,
+        lint_report=lint_report,
+        dummy_work_dir=paths.root / "dummies",
+        report_path=paths.reports / "hard_gate_report.json",
+        event_log_path=paths.event_log,
+        config=config,
+    )
+    gold_result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
+    lint_report = lint_and_log(task_id, paths.generated_tests, paths.event_log, config)
+    determinism_report = run_gold_determinism_details(
         task_id,
         paths.generated_tests,
         paths.executable,
         paths.event_log,
         config,
     )
-    dummy_pass_rate = DummyBinaryRunner().run(
+    dummy_report = DummyBinaryRunner().run_details(
         task_id,
         paths.generated_tests,
-        paths.root / "dummies",
+        paths.root / "dummies" / "accepted",
         paths.event_log,
     )
+    deterministic_rate = determinism_report.deterministic_pass_rate
+    dummy_pass_rate = dummy_report.dummy_pass_rate
     redundancy_report = RedundancyAnalyzer().analyze(
         task_id,
         paths.generated_tests,

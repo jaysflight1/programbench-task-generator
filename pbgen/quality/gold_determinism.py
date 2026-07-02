@@ -7,7 +7,7 @@ from pathlib import Path
 from pbgen.config import PBGenConfig
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
-from pbgen.schemas import TestRunResult
+from pbgen.schemas import GoldDeterminismReport, TestRunResult
 
 
 def run_gold_determinism(
@@ -20,10 +20,31 @@ def run_gold_determinism(
 ) -> float:
     """Run tests repeatedly against gold and return deterministic pass rate."""
 
+    return run_gold_determinism_details(
+        task_id,
+        tests_path,
+        executable_path,
+        event_log_path,
+        config,
+        iteration=iteration,
+    ).deterministic_pass_rate
+
+
+def run_gold_determinism_details(
+    task_id: str,
+    tests_path: Path,
+    executable_path: Path,
+    event_log_path: Path,
+    config: PBGenConfig,
+    iteration: int | None = None,
+) -> GoldDeterminismReport:
+    """Run tests repeatedly against gold and return per-test determinism details."""
+
     results: list[TestRunResult] = []
     for _ in range(config.determinism_runs):
         results.append(run_generated_suite(task_id, tests_path, executable_path))
     deterministic_rate = _per_test_deterministic_pass_rate(results)
+    per_test = _per_test_deterministic(results)
     EventLogger(event_log_path).append(
         task_id=task_id,
         stage="quality",
@@ -33,10 +54,16 @@ def run_gold_determinism(
             "runs": config.determinism_runs,
             "pass_rates": [result.pass_rate for result in results],
             "deterministic_pass_rate": deterministic_rate,
-            "per_test_deterministic": _per_test_deterministic(results),
+            "per_test_deterministic": per_test,
         },
     )
-    return deterministic_rate
+    return GoldDeterminismReport(
+        task_id=task_id,
+        deterministic_pass_rate=deterministic_rate,
+        runs=config.determinism_runs,
+        pass_rates=[result.pass_rate for result in results],
+        per_test_deterministic=per_test,
+    )
 
 
 def _per_test_deterministic_pass_rate(results: list[TestRunResult]) -> float:

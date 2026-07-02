@@ -87,6 +87,22 @@ def test_build_qc_queue_populates_recommendations_and_summary() -> None:
     }
 
 
+def test_build_qc_queue_adds_per_test_hard_gate_items() -> None:
+    report = build_qc_queue(
+        "demo",
+        AssertionLintReport(task_id="demo"),
+        deterministic_pass_rate=0.5,
+        dummy_pass_rate=0.5,
+        redundancy_report=RedundancyReport(task_id="demo", items=[], redundancy_score=0.0),
+        per_test_deterministic={"test_flaky": False, "test_stable": True},
+        per_test_dummy_passes={"test_dummy": True, "test_strong": False},
+    )
+
+    by_test = {item.test_id: item for item in report.items}
+    assert by_test["test_flaky"].queue == "flaky test queue"
+    assert by_test["test_dummy"].queue == "dummy-passing test queue"
+
+
 def test_export_qc_queue_groups_counts_and_recommendations(tmp_path: Path) -> None:
     report = QCQueueReport(
         task_id="demo",

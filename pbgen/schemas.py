@@ -336,6 +336,47 @@ class TestRunResult(PBModel):
         return self.passed_tests / self.total_tests if self.total_tests else 0.0
 
 
+class GoldDeterminismReport(PBModel):
+    """Per-test determinism result for repeated gold runs."""
+
+    task_id: str
+    deterministic_pass_rate: float
+    runs: int
+    pass_rates: list[float] = Field(default_factory=list)
+    per_test_deterministic: dict[str, bool] = Field(default_factory=dict)
+
+
+class DummyRunReport(PBModel):
+    """Per-test dummy-binary rejection result."""
+
+    task_id: str
+    dummy_pass_rate: float
+    dummy_pass_rates: dict[str, float] = Field(default_factory=dict)
+    per_test_dummy_passes: dict[str, bool] = Field(default_factory=dict)
+
+
+class HardGateRejectedTest(PBModel):
+    """One test rejected by hard quality gates."""
+
+    test_id: str
+    reasons: list[str] = Field(default_factory=list)
+
+
+class HardGateReport(PBModel):
+    """Hard-filter report for accepted and rejected generated tests."""
+
+    task_id: str
+    iteration: int | None = None
+    suite_passed: bool
+    accepted_test_count: int
+    rejected_test_count: int
+    rejected_tests: list[HardGateRejectedTest] = Field(default_factory=list)
+    high_lint_rejected: bool = True
+    gold_deterministic_required: bool = True
+    dummy_rejection_required: bool = True
+    canonical_filter_applied: bool = False
+
+
 class TestCaseRecord(PBModel):
     """Generated executable-level behavioral test metadata."""
 

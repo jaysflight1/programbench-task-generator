@@ -112,6 +112,12 @@ def write_executable_test_suite(
     return [test_path]
 
 
+def render_pytest_compatibility(cases: list[ExecutableTestCase]) -> str:
+    """Render canonical executable test cases as pytest compatibility tests."""
+
+    return _render_pytest(cases)
+
+
 def _examples_for_prompt(prompt: TestGenerationPrompt) -> list[CommandExample]:
     examples = [
         example
