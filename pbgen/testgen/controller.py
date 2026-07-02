@@ -5,7 +5,7 @@ from __future__ import annotations
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.coverage.coverage_runner import run_python_coverage
 from pbgen.errors import CoverageError
-from pbgen.eval.submission_runner import run_pytest_suite
+from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
 from pbgen.qc.qc_queue import build_qc_queue
 from pbgen.quality.assertion_linter import AssertionQualityLinter
@@ -67,7 +67,7 @@ class CoverageGuidedTestController:
                 prompt_version=getattr(self.backend, "prompt_version", None),
                 metrics={"files": len(accepted)},
             )
-            result = run_pytest_suite(task_id, paths.generated_tests, paths.executable)
+            result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             self._run_iteration_quality_gates(task_id, iteration, paths, logger)
             coverage_report = None
             if self.config.coverage_enabled and spec.language == "python":

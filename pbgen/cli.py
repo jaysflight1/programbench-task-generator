@@ -14,7 +14,7 @@ from pbgen.cleanroom.task_packager import package_cleanroom
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.efficiency.efficiency_score import score_efficiency
 from pbgen.errors import PBGenError
-from pbgen.eval.submission_runner import run_pytest_suite
+from pbgen.eval.submission_runner import run_generated_suite, run_pytest_suite
 from pbgen.quality.assertion_linter import lint_and_log
 from pbgen.quality.dummy_runner import DummyBinaryRunner
 from pbgen.quality.gold_determinism import run_gold_determinism
@@ -141,7 +141,7 @@ def evaluate_suite(
     """Run gold evaluation, quality gates, redundancy, efficiency, and scoring."""
 
     paths = ArtifactPaths(config, task_id)
-    gold_result = run_pytest_suite(task_id, paths.generated_tests, paths.executable)
+    gold_result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
     lint_report = lint_and_log(task_id, paths.generated_tests, paths.event_log, config)
     deterministic_rate = run_gold_determinism(
         task_id,

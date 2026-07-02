@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import stat
 
-from pbgen.eval.submission_runner import run_pytest_suite
+from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.logging.event_log import EventLogger
 
 
@@ -26,7 +26,7 @@ class DummyBinaryRunner:
             self._write_dummy(work_dir / "generic_help", 'import sys\nprint("Usage: program [options]")\nsys.exit(0)\n'),
             self._write_dummy(work_dir / "echo_args", "import sys\nprint(' '.join(sys.argv[1:]))\nsys.exit(0)\n"),
         ]
-        rates = [run_pytest_suite(task_id, tests_path, dummy).pass_rate for dummy in dummy_paths]
+        rates = [run_generated_suite(task_id, tests_path, dummy).pass_rate for dummy in dummy_paths]
         dummy_pass_rate = max(rates) if rates else 0.0
         EventLogger(event_log_path).append(
             task_id=task_id,
