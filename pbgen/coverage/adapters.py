@@ -1,0 +1,646 @@
+"""Coverage adapter interfaces and Python coverage.py integration."""
+
+from __future__ import annotations
+
+import ast
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+from typing import Any
+import uuid
+
+from pbgen.errors import CoverageError
+from pbgen.schemas import CoverageGap, CoverageReport
+from pbgen.subprocess_utils import CommandResult, run_command
+
+
+class CoverageAdapter(ABC):
+    """Interface for language-specific coverage instrumentation."""
+
+    @abstractmethod
+    def instrument_build(self, repo_path: Path) -> Path:
+        """Build or prepare a coverage-instrumented executable."""
+
+    @abstractmethod
+    def run_tests_with_coverage(self, tests_path: Path, executable_path: Path) -> CoverageReport:
+        """Run tests and return structured coverage."""
+
+    @abstractmethod
+    def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
+        """Extract prioritized coverage gaps from a report."""
+
+
+class PlaceholderCoverageAdapter(CoverageAdapter):
+    """Professional placeholder for future Rust/Go/C/C++ coverage backends."""
+
+    def __init__(self, language: str) -> None:
+        self.language = language
+
+    def instrument_build(self, repo_path: Path) -> Path:
+        raise CoverageError(f"{self.language} coverage instrumentation is not implemented in the MVP.")
+
+    def run_tests_with_coverage(self, tests_path: Path, executable_path: Path) -> CoverageReport:
+        raise CoverageError(f"{self.language} coverage execution is not implemented in the MVP.")
+
+    def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
+        return report.gaps
+
+
+@dataclass(frozen=True)
+class CoverageWrapper:
+    """Paths created for a coverage.py executable wrapper run."""
+
+    wrapper_path: Path
+    coverage_dir: Path
+    data_file: Path
+    json_report_path: Path
+
+
+@dataclass(frozen=True)
+class FunctionSpan:
+    """AST function span used to map missing lines back to callable targets."""
+
+    name: str
+    start_line: int
+    body_start_line: int
+    end_line: int
+
+
+class PythonCoverageAdapter(CoverageAdapter):
+    """Run generated pytest suites through a coverage.py-backed executable wrapper."""
+
+    def __init__(
+        self,
+        task_id: str = "unknown",
+        iteration: int = 0,
+        *,
+        source_roots: list[Path] | None = None,
+        work_dir: Path | None = None,
+        python_executable: str | None = None,
+        timeout_seconds: int = 120,
+    ) -> None:
+        self.task_id = task_id
+        self.iteration = iteration
+        self.source_roots = tuple(path.resolve() for path in (source_roots or []))
+        self.work_dir = work_dir
+        self.python_executable = python_executable or sys.executable
+        self.timeout_seconds = timeout_seconds
+
+    def instrument_build(self, repo_path: Path) -> Path:
+        """Register a Python source root for later coverage path resolution.
+
+        Python programs do not need a compiler-level instrumentation step. The
+        coverage wrapper is created per test run so it can point at the exact
+        executable selected by the build stage.
+        """
+
+        resolved = repo_path.resolve()
+        if not resolved.exists():
+            raise CoverageError(f"Cannot instrument missing Python source root: {resolved}")
+        self.source_roots = (*self.source_roots, resolved)
+        return resolved
+
+    def run_tests_with_coverage(self, tests_path: Path, executable_path: Path) -> CoverageReport:
+        """Run pytest with PBGEN_EXECUTABLE set to a coverage wrapper executable."""
+
+        tests_path = tests_path.resolve()
+        executable_path = executable_path.resolve()
+        _validate_coverage_inputs(tests_path, executable_path)
+        _ensure_coverage_module(self.python_executable)
+
+        with _coverage_run_directory(self.work_dir) as coverage_dir:
+            wrapper = create_coverage_wrapper(
+                executable_path,
+                coverage_dir,
+                python_executable=self.python_executable,
+            )
+            pytest_result = _run_pytest_against_wrapper(
+                self.python_executable,
+                tests_path,
+                executable_path,
+                wrapper.wrapper_path,
+                self.source_roots,
+                self.timeout_seconds,
+            )
+            if not pytest_result.ok:
+                raise CoverageError(_format_command_failure("pytest coverage run failed", pytest_result))
+
+            combine_result = run_command(
+                [
+                    self.python_executable,
+                    "-m",
+                    "coverage",
+                    "combine",
+                    "--data-file",
+                    str(wrapper.data_file),
+                    str(wrapper.coverage_dir),
+                ],
+                timeout_seconds=self.timeout_seconds,
+            )
+            if not combine_result.ok:
+                raise CoverageError(_format_command_failure("coverage combine failed", combine_result))
+
+            json_result = run_command(
+                [
+                    self.python_executable,
+                    "-m",
+                    "coverage",
+                    "json",
+                    "--data-file",
+                    str(wrapper.data_file),
+                    "-o",
+                    str(wrapper.json_report_path),
+                    "--pretty-print",
+                ],
+                timeout_seconds=self.timeout_seconds,
+            )
+            if not json_result.ok:
+                raise CoverageError(_format_command_failure("coverage json export failed", json_result))
+
+            return coverage_report_from_json(
+                self.task_id,
+                self.iteration,
+                wrapper.json_report_path,
+                source_roots=list(self.source_roots),
+            )
+
+    def extract_uncovered_targets(self, report: CoverageReport) -> list[CoverageGap]:
+        """Return gaps sorted from most to least important."""
+
+        return sorted(report.gaps, key=lambda gap: gap.priority, reverse=True)
+
+
+def run_python_coverage(
+    task_id: str,
+    tests_path: Path,
+    executable_path: Path,
+    *,
+    iteration: int = 0,
+    source_roots: list[Path] | None = None,
+    work_dir: Path | None = None,
+    timeout_seconds: int = 120,
+) -> CoverageReport:
+    """Convenience hook for pipeline stages that do not need adapter state."""
+
+    adapter = PythonCoverageAdapter(
+        task_id=task_id,
+        iteration=iteration,
+        source_roots=source_roots,
+        work_dir=work_dir,
+        timeout_seconds=timeout_seconds,
+    )
+    return adapter.run_tests_with_coverage(tests_path, executable_path)
+
+
+def create_coverage_wrapper(
+    executable_path: Path,
+    coverage_dir: Path,
+    *,
+    python_executable: str | None = None,
+    wrapper_name: str = "pbgen-coverage-wrapper",
+) -> CoverageWrapper:
+    """Create an executable that runs the target under coverage.py parallel mode."""
+
+    executable_path = executable_path.resolve()
+    coverage_dir = coverage_dir.resolve()
+    python_executable = python_executable or sys.executable
+    coverage_dir.mkdir(parents=True, exist_ok=True)
+
+    data_file = coverage_dir / ".coverage"
+    json_report_path = coverage_dir / "coverage.json"
+    wrapper_path = coverage_dir / wrapper_name
+    wrapper_path.write_text(
+        _render_wrapper_script(
+            executable_path=executable_path,
+            coverage_dir=coverage_dir,
+            data_file=data_file,
+            python_executable=python_executable,
+        ),
+        encoding="utf-8",
+    )
+    wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IRUSR)
+    return CoverageWrapper(
+        wrapper_path=wrapper_path,
+        coverage_dir=coverage_dir,
+        data_file=data_file,
+        json_report_path=json_report_path,
+    )
+
+
+def coverage_report_from_json(
+    task_id: str,
+    iteration: int,
+    coverage_json_path: Path,
+    *,
+    source_roots: list[Path] | None = None,
+) -> CoverageReport:
+    """Convert coverage.py JSON output into the existing CoverageReport schema."""
+
+    source_roots = [path.resolve() for path in (source_roots or [])]
+    try:
+        payload = json.loads(coverage_json_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CoverageError(f"Could not read coverage JSON report: {coverage_json_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise CoverageError(f"Invalid coverage JSON report: {coverage_json_path}") from exc
+
+    files = payload.get("files", {})
+    if not isinstance(files, dict):
+        raise CoverageError("coverage JSON report does not contain a files mapping.")
+
+    uncovered_files: list[str] = []
+    uncovered_line_ranges: list[dict[str, Any]] = []
+    uncovered_function_keys: set[str] = set()
+    gaps: list[CoverageGap] = []
+    total_missing = 0
+
+    file_entries = sorted(files.items(), key=lambda item: item[0])
+    missing_by_file: dict[str, int] = {}
+    coverage_by_file: dict[str, float | None] = {}
+    for reported_path, file_payload in file_entries:
+        if not isinstance(file_payload, dict):
+            continue
+        missing_lines = _int_list(file_payload.get("missing_lines"))
+        total_missing += len(missing_lines)
+        missing_by_file[reported_path] = len(missing_lines)
+        coverage_by_file[reported_path] = _line_coverage_from_summary(file_payload.get("summary"))
+
+    for reported_path, file_payload in file_entries:
+        if not isinstance(file_payload, dict):
+            continue
+        missing_lines = _int_list(file_payload.get("missing_lines"))
+        if not missing_lines:
+            continue
+
+        display_path = _display_file_path(reported_path, source_roots)
+        uncovered_files.append(display_path)
+        source_path = _resolve_reported_path(reported_path, coverage_json_path.parent, source_roots)
+        function_spans = _function_spans_for_path(source_path) if source_path else []
+
+        for start_line, end_line, function_name in _missing_ranges(missing_lines, function_spans):
+            missing_count = end_line - start_line + 1
+            range_record = {
+                "file_path": display_path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "function_name": function_name,
+                "missing_lines": missing_count,
+            }
+            uncovered_line_ranges.append(range_record)
+            if function_name:
+                uncovered_function_keys.add(f"{display_path}:{function_name}")
+            gaps.append(
+                CoverageGap(
+                    file_path=display_path,
+                    function_name=function_name,
+                    start_line=start_line,
+                    end_line=end_line,
+                    reason=f"{missing_count} uncovered executable line(s)",
+                    priority=_gap_priority(
+                        missing_count=missing_count,
+                        file_missing=missing_by_file.get(reported_path, missing_count),
+                        total_missing=total_missing,
+                        file_line_coverage=coverage_by_file.get(reported_path),
+                        has_function=function_name is not None,
+                    ),
+                )
+            )
+
+    gaps = sorted(gaps, key=lambda gap: gap.priority, reverse=True)
+    totals = payload.get("totals", {})
+    line_coverage = _line_coverage_from_summary(totals)
+    branch_coverage = _branch_coverage_from_summary(totals)
+    function_coverage = _function_coverage(files, coverage_json_path.parent, source_roots)
+
+    return CoverageReport(
+        task_id=task_id,
+        iteration=iteration,
+        line_coverage=line_coverage,
+        branch_coverage=branch_coverage,
+        function_coverage=function_coverage,
+        uncovered_files=uncovered_files,
+        uncovered_functions=sorted(uncovered_function_keys),
+        uncovered_line_ranges=uncovered_line_ranges,
+        gaps=gaps,
+    )
+
+
+def _render_wrapper_script(
+    *,
+    executable_path: Path,
+    coverage_dir: Path,
+    data_file: Path,
+    python_executable: str,
+) -> str:
+    return f'''#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+PYTHON_EXECUTABLE = {str(python_executable)!r}
+TARGET_EXECUTABLE = {str(executable_path)!r}
+COVERAGE_DIR = {str(coverage_dir)!r}
+DATA_FILE = {str(data_file)!r}
+
+
+def main() -> int:
+    env = os.environ.copy()
+    env["COVERAGE_FILE"] = DATA_FILE
+    command = [
+        PYTHON_EXECUTABLE,
+        "-m",
+        "coverage",
+        "run",
+        "--parallel-mode",
+        "--data-file",
+        DATA_FILE,
+        TARGET_EXECUTABLE,
+        *sys.argv[1:],
+    ]
+    completed = subprocess.run(command, check=False, env=env)
+    return completed.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
+def _validate_coverage_inputs(tests_path: Path, executable_path: Path) -> None:
+    if not tests_path.exists():
+        raise CoverageError(f"Cannot run coverage for missing tests path: {tests_path}")
+    if not executable_path.exists():
+        raise CoverageError(f"Cannot run coverage for missing executable: {executable_path}")
+
+
+def _ensure_coverage_module(python_executable: str) -> None:
+    result = run_command(
+        [python_executable, "-m", "coverage", "--version"],
+        timeout_seconds=20,
+    )
+    if not result.ok:
+        raise CoverageError(
+            "coverage.py is required for Python coverage collection. "
+            "Install the coverage package in the Python environment used by pbgen."
+        )
+
+
+class _coverage_run_directory:
+    def __init__(self, work_dir: Path | None) -> None:
+        self.work_dir = work_dir
+        self._temporary_directory: tempfile.TemporaryDirectory[str] | None = None
+        self.path: Path | None = None
+
+    def __enter__(self) -> Path:
+        if self.work_dir is None:
+            self._temporary_directory = tempfile.TemporaryDirectory(prefix="pbgen-coverage-")
+            self.path = Path(self._temporary_directory.name)
+        else:
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+            self.path = self.work_dir / f"coverage-run-{uuid.uuid4().hex}"
+            self.path.mkdir(parents=True, exist_ok=False)
+        return self.path
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self._temporary_directory is not None:
+            self._temporary_directory.cleanup()
+
+
+def _run_pytest_against_wrapper(
+    python_executable: str,
+    tests_path: Path,
+    executable_path: Path,
+    wrapper_path: Path,
+    source_roots: tuple[Path, ...],
+    timeout_seconds: int,
+) -> CommandResult:
+    env = os.environ.copy()
+    env["PBGEN_EXECUTABLE"] = str(wrapper_path)
+    pythonpath_entries = [str(executable_path.parent), *(str(path) for path in source_roots)]
+    existing_pythonpath = env.get("PYTHONPATH")
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(pythonpath_entries))
+    cwd = tests_path if tests_path.is_dir() else tests_path.parent
+    return run_command(
+        [python_executable, "-m", "pytest", str(tests_path), "-q"],
+        cwd=cwd,
+        env=env,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _format_command_failure(message: str, result: CommandResult) -> str:
+    stdout = result.stdout.strip()
+    stderr = result.stderr.strip()
+    details = [f"{message} (exit {result.returncode})."]
+    if stdout:
+        details.append(f"stdout:\n{stdout}")
+    if stderr:
+        details.append(f"stderr:\n{stderr}")
+    return "\n".join(details)
+
+
+def _int_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    lines: set[int] = set()
+    for item in value:
+        try:
+            lines.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return sorted(lines)
+
+
+def _line_coverage_from_summary(summary: object) -> float | None:
+    if not isinstance(summary, dict):
+        return None
+    ratio = _ratio(summary, "covered_lines", "num_statements")
+    if ratio is not None:
+        return ratio
+    percent = summary.get("percent_covered")
+    return _percent_to_ratio(percent)
+
+
+def _branch_coverage_from_summary(summary: object) -> float | None:
+    if not isinstance(summary, dict):
+        return None
+    return _ratio(summary, "covered_branches", "num_branches")
+
+
+def _ratio(summary: dict[str, object], covered_key: str, total_key: str) -> float | None:
+    covered = _as_float(summary.get(covered_key))
+    total = _as_float(summary.get(total_key))
+    if covered is None or total is None:
+        return None
+    if total == 0:
+        return None
+    return covered / total
+
+
+def _percent_to_ratio(value: object) -> float | None:
+    number = _as_float(value)
+    if number is None:
+        return None
+    return number / 100.0
+
+
+def _as_float(value: object) -> float | None:
+    if not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _display_file_path(reported_path: str, source_roots: list[Path]) -> str:
+    path = Path(reported_path)
+    if not path.is_absolute():
+        return reported_path
+    for root in source_roots:
+        try:
+            return path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
+
+
+def _resolve_reported_path(
+    reported_path: str,
+    report_dir: Path,
+    source_roots: list[Path],
+) -> Path | None:
+    path = Path(reported_path)
+    candidates = [path] if path.is_absolute() else []
+    candidates.extend(root / reported_path for root in source_roots)
+    candidates.append(report_dir / reported_path)
+    candidates.append(Path.cwd() / reported_path)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
+def _function_spans_for_path(source_path: Path) -> list[FunctionSpan]:
+    try:
+        source = source_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return []
+
+    spans: list[FunctionSpan] = []
+
+    def visit_body(nodes: list[ast.stmt], prefix: tuple[str, ...]) -> None:
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualified_name = ".".join((*prefix, node.name))
+                spans.append(
+                    FunctionSpan(
+                        name=qualified_name,
+                        start_line=node.lineno,
+                        body_start_line=_body_start_line(node),
+                        end_line=getattr(node, "end_lineno", node.lineno) or node.lineno,
+                    )
+                )
+                visit_body(node.body, (*prefix, node.name))
+            elif isinstance(node, ast.ClassDef):
+                visit_body(node.body, (*prefix, node.name))
+
+    visit_body(tree.body, ())
+    return spans
+
+
+def _body_start_line(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    if not node.body:
+        return node.lineno
+    return min(statement.lineno for statement in node.body)
+
+
+def _missing_ranges(
+    missing_lines: list[int],
+    function_spans: list[FunctionSpan],
+) -> list[tuple[int, int, str | None]]:
+    ranges: list[tuple[int, int, str | None]] = []
+    start_line: int | None = None
+    previous_line: int | None = None
+    current_function: str | None = None
+
+    for line in missing_lines:
+        function_name = _function_for_line(line, function_spans)
+        if (
+            start_line is None
+            or previous_line is None
+            or line != previous_line + 1
+            or function_name != current_function
+        ):
+            if start_line is not None and previous_line is not None:
+                ranges.append((start_line, previous_line, current_function))
+            start_line = line
+            current_function = function_name
+        previous_line = line
+
+    if start_line is not None and previous_line is not None:
+        ranges.append((start_line, previous_line, current_function))
+    return ranges
+
+
+def _function_for_line(line: int, function_spans: list[FunctionSpan]) -> str | None:
+    matches = [
+        span for span in function_spans if span.start_line <= line <= span.end_line
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda span: (span.start_line, -span.end_line)).name
+
+
+def _gap_priority(
+    *,
+    missing_count: int,
+    file_missing: int,
+    total_missing: int,
+    file_line_coverage: float | None,
+    has_function: bool,
+) -> float:
+    file_share = file_missing / total_missing if total_missing else 0.0
+    uncovered_weight = 1.0 - file_line_coverage if file_line_coverage is not None else 0.0
+    function_bonus = 0.25 if has_function else 0.0
+    return round(float(missing_count) + file_share + uncovered_weight + function_bonus, 4)
+
+
+def _function_coverage(
+    files: object,
+    report_dir: Path,
+    source_roots: list[Path],
+) -> float | None:
+    if not isinstance(files, dict):
+        return None
+
+    total_functions = 0
+    covered_functions = 0
+    for reported_path, file_payload in files.items():
+        if not isinstance(reported_path, str) or not isinstance(file_payload, dict):
+            continue
+        source_path = _resolve_reported_path(reported_path, report_dir, source_roots)
+        if source_path is None:
+            continue
+        spans = _function_spans_for_path(source_path)
+        if not spans:
+            continue
+        executed_lines = set(_int_list(file_payload.get("executed_lines")))
+        for span in spans:
+            total_functions += 1
+            if any(span.body_start_line <= line <= span.end_line for line in executed_lines):
+                covered_functions += 1
+
+    if total_functions == 0:
+        return None
+    return covered_functions / total_functions

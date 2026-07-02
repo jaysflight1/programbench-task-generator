@@ -1,0 +1,79 @@
+{
+  "commands": [
+    {
+      "category": "help",
+      "command": "--help",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "version",
+      "command": "--version",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "add",
+      "notes": "NUM...     Sum decimal numbers.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "mul",
+      "notes": "NUM...     Multiply decimal numbers.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "stats",
+      "notes": "NUM...   Print count, sum, mean, min, and max.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "pbcalc",
+      "notes": "1.0",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    }
+  ],
+  "config_files": [],
+  "env_vars": [
+    "PBGEN_EXECUTABLE"
+  ],
+  "error_cases": [
+    "invalid arguments"
+  ],
+  "file_inputs": [],
+  "global_flags": [
+    "--help",
+    "--version",
+    "-h"
+  ],
+  "side_effects": [],
+  "stdin_supported": false,
+  "subcommand_flags": {},
+  "task_id": "mini_cli_run"
+}

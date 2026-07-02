@@ -1,0 +1,209 @@
+{
+  "items": [
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 1f70f20db2 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_0_version"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 1f70f20db2 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_0_version"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 4 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_4_stats_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 4 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_9_stats_1"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 4 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_4_stats_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 4 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_9_stats_1"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 5f22225f66 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_5_help"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 5f22225f66 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_5_help"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 60868d1da3 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_3_mul_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 60868d1da3 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_3_mul_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 790a510511 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_10_pbcalc"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 790a510511 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_10_pbcalc"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 9854a0a7a2 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_7_add_1"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 9854a0a7a2 contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_7_add_1"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster d1262f976d contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_2_add_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster d1262f976d contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_2_add_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster ebaa1a058c contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_1_add_2_5_1_25"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster ebaa1a058c contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_1_add_2_5_1_25"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster eeed416e9d contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_6_h"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster eeed416e9d contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_6_h"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster f198c5136f contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_8_mul_1"
+    },
+    {
+      "file_path": null,
+      "iteration": null,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster f198c5136f contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_1_8_mul_1"
+    }
+  ],
+  "summary": {
+    "counts_by_queue": {
+      "redundant high-assertion queue": 22
+    },
+    "total_items": 22
+  },
+  "task_id": "impressive_demo_roi"
+}

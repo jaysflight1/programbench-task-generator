@@ -1,0 +1,218 @@
+{
+  "command_examples": [
+    {
+      "args": [
+        "--version"
+      ],
+      "category": "example",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "shell",
+      "source_path": "README.md"
+    },
+    {
+      "args": [
+        "add",
+        "2.5",
+        "-1.25",
+        "4"
+      ],
+      "category": "example",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "shell",
+      "source_path": "README.md"
+    },
+    {
+      "args": [
+        "add",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": "README.md"
+    },
+    {
+      "args": [
+        "mul",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": "README.md"
+    },
+    {
+      "args": [
+        "stats",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": "README.md"
+    },
+    {
+      "args": [
+        "add",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    },
+    {
+      "args": [
+        "mul",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    },
+    {
+      "args": [
+        "stats",
+        "1",
+        "2"
+      ],
+      "category": "subcommand",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    },
+    {
+      "args": [
+        "--help"
+      ],
+      "category": "help",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    },
+    {
+      "args": [
+        "-h"
+      ],
+      "category": "help",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "category": "version",
+      "expected_exit_code": null,
+      "expected_stderr": null,
+      "expected_stdout": null,
+      "source": "help-derived",
+      "source_path": null
+    }
+  ],
+  "commands": [
+    {
+      "category": "help",
+      "command": "--help",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "version",
+      "command": "--version",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "add",
+      "notes": "NUM...     Sum decimal numbers.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "mul",
+      "notes": "NUM...     Multiply decimal numbers.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "stats",
+      "notes": "NUM...   Print count, sum, mean, min, and max.",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "subcommand",
+      "command": "pbcalc",
+      "notes": "1.0",
+      "observables": [
+        "stdout",
+        "stderr",
+        "exit_code"
+      ]
+    }
+  ],
+  "config_files": [],
+  "env_vars": [
+    "PBGEN_EXECUTABLE"
+  ],
+  "error_cases": [
+    "invalid arguments"
+  ],
+  "file_inputs": [],
+  "global_flags": [
+    "--help",
+    "--version",
+    "-h"
+  ],
+  "recorded_behaviors": [],
+  "side_effects": [],
+  "stdin_supported": false,
+  "subcommand_flags": {},
+  "task_id": "mini_cli_cov"
+}

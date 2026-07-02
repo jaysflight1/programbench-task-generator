@@ -1,0 +1,32 @@
+{
+  "branch_coverage": null,
+  "function_coverage": 1.0,
+  "gaps": [
+    {
+      "end_line": 73,
+      "file_path": "artifacts/mini_cli_twostep/gold/executable/program",
+      "function_name": "main",
+      "priority": 3.2877,
+      "reason": "2 uncovered executable line(s)",
+      "start_line": 72
+    }
+  ],
+  "iteration": 1,
+  "line_coverage": 0.9622641509433962,
+  "task_id": "mini_cli_twostep",
+  "uncovered_files": [
+    "artifacts/mini_cli_twostep/gold/executable/program"
+  ],
+  "uncovered_functions": [
+    "artifacts/mini_cli_twostep/gold/executable/program:main"
+  ],
+  "uncovered_line_ranges": [
+    {
+      "end_line": 73,
+      "file_path": "artifacts/mini_cli_twostep/gold/executable/program",
+      "function_name": "main",
+      "missing_lines": 2,
+      "start_line": 72
+    }
+  ]
+}

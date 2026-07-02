@@ -1,0 +1,9 @@
+{
+  "candidate_median_runtime_ms": 18.174957993323915,
+  "efficiency_multiplier": 1.0106557055873981,
+  "eligible": true,
+  "reason": null,
+  "reference_median_runtime_ms": 18.368624994764104,
+  "runtime_ratio": 1.0106557055873981,
+  "task_id": "mini_cli_cov"
+}

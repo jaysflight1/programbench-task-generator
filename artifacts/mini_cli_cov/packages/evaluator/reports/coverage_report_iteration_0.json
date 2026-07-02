@@ -1,0 +1,48 @@
+{
+  "branch_coverage": null,
+  "function_coverage": 1.0,
+  "gaps": [
+    {
+      "end_line": 32,
+      "file_path": "artifacts/mini_cli_cov/gold/executable/program",
+      "function_name": "parse_numbers",
+      "priority": 3.3255,
+      "reason": "2 uncovered executable line(s)",
+      "start_line": 31
+    },
+    {
+      "end_line": 73,
+      "file_path": "artifacts/mini_cli_cov/gold/executable/program",
+      "function_name": "main",
+      "priority": 3.3255,
+      "reason": "2 uncovered executable line(s)",
+      "start_line": 72
+    }
+  ],
+  "iteration": 0,
+  "line_coverage": 0.9245283018867925,
+  "task_id": "mini_cli_cov",
+  "uncovered_files": [
+    "artifacts/mini_cli_cov/gold/executable/program"
+  ],
+  "uncovered_functions": [
+    "artifacts/mini_cli_cov/gold/executable/program:main",
+    "artifacts/mini_cli_cov/gold/executable/program:parse_numbers"
+  ],
+  "uncovered_line_ranges": [
+    {
+      "end_line": 32,
+      "file_path": "artifacts/mini_cli_cov/gold/executable/program",
+      "function_name": "parse_numbers",
+      "missing_lines": 2,
+      "start_line": 31
+    },
+    {
+      "end_line": 73,
+      "file_path": "artifacts/mini_cli_cov/gold/executable/program",
+      "function_name": "main",
+      "missing_lines": 2,
+      "start_line": 72
+    }
+  ]
+}

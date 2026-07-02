@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "programbench-generator"
+version = "0.1.0"
+description = "A ProgramBench-style benchmark task-generation framework."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic",
+  "pyyaml",
+  "rich",
+  "typer",
+  "pytest",
+  "coverage",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "mypy", "pytest"]
+
+[project.scripts]
+pbgen = "pbgen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pbgen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["pbgen"]

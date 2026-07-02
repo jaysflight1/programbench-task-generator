@@ -1,0 +1,9 @@
+{
+  "candidate_median_runtime_ms": 18.37429200531915,
+  "efficiency_multiplier": 1.0072201964841325,
+  "eligible": true,
+  "reason": null,
+  "reference_median_runtime_ms": 18.50695800385438,
+  "runtime_ratio": 1.0072201964841325,
+  "task_id": "impressive_demo_roi"
+}

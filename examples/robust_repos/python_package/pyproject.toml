@@ -1,0 +1,7 @@
+[project]
+name = "packcalc"
+version = "1.0.0"
+
+[project.scripts]
+packcalc = "packcalc.cli:main"
+

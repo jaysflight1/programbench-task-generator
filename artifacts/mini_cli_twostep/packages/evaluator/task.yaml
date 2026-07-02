@@ -1,0 +1,44 @@
+{
+  "asset_paths": [],
+  "binary_names": [
+    "pbcalc"
+  ],
+  "build_candidates": [
+    {
+      "build_system": "script",
+      "commands": [],
+      "confidence": 0.84,
+      "dependency_manifests": [],
+      "entrypoint_paths": [
+        "pbcalc"
+      ],
+      "language": "python",
+      "output_hints": [],
+      "warnings": []
+    }
+  ],
+  "build_system": "script",
+  "commit_sha": "local",
+  "dependency_manifests": [],
+  "docs_paths": [
+    "README.md"
+  ],
+  "entrypoint_candidates": [
+    {
+      "callable_name": null,
+      "confidence": 0.86,
+      "help_probe_supported": true,
+      "invocation_kind": "executable-file",
+      "language": "python",
+      "module": null,
+      "name": "pbcalc",
+      "path": "pbcalc",
+      "reason": "shebang script, top-level file, binary-like name, python shebang"
+    }
+  ],
+  "language": "python",
+  "license": null,
+  "metadata_warnings": [],
+  "repo_url": "/Users/jaylanroy/Desktop/pb/programbench-generator/examples/demo_task/source",
+  "task_id": "mini_cli_twostep"
+}

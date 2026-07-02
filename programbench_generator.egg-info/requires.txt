@@ -1,0 +1,11 @@
+pydantic
+pyyaml
+rich
+typer
+pytest
+coverage
+
+[dev]
+ruff
+mypy
+pytest

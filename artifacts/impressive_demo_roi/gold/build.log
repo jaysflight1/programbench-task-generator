@@ -1,0 +1,55 @@
+Build attempts:
+{'build_system': 'script', 'status': 'succeeded', 'outputs': {'pbcalc': '/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/impressive_demo_roi/gold/executables/pbcalc'}}
+
+Primary executable: pbcalc -> /Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/impressive_demo_roi/gold/executables/pbcalc
+
+$ program --help
+exit=0
+stdout=Usage: pbcalc COMMAND [ARGS]
+
+Commands:
+  add NUM...     Sum decimal numbers.
+  mul NUM...     Multiply decimal numbers.
+  stats NUM...   Print count, sum, mean, min, and max.
+
+Options:
+  -h, --help     Show help.
+  --version      Show version.
+
+stderr=
+
+$ program -h
+exit=0
+stdout=Usage: pbcalc COMMAND [ARGS]
+
+Commands:
+  add NUM...     Sum decimal numbers.
+  mul NUM...     Multiply decimal numbers.
+  stats NUM...   Print count, sum, mean, min, and max.
+
+Options:
+  -h, --help     Show help.
+  --version      Show version.
+
+stderr=
+
+$ program --version
+exit=0
+stdout=pbcalc 1.0
+
+stderr=
+
+$ program 
+exit=0
+stdout=Usage: pbcalc COMMAND [ARGS]
+
+Commands:
+  add NUM...     Sum decimal numbers.
+  mul NUM...     Multiply decimal numbers.
+  stats NUM...   Print count, sum, mean, min, and max.
+
+Options:
+  -h, --help     Show help.
+  --version      Show version.
+
+stderr=

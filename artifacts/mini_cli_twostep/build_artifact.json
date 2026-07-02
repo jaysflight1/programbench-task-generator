@@ -1,0 +1,24 @@
+{
+  "build_attempts": [
+    {
+      "build_system": "script",
+      "outputs": {
+        "pbcalc": "/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_twostep/gold/executables/pbcalc"
+      },
+      "status": "succeeded"
+    }
+  ],
+  "build_log_path": "/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_twostep/gold/build.log",
+  "build_script_path": "/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_twostep/gold/build_gold.sh",
+  "build_success": true,
+  "docker_image": null,
+  "executable_hash": "771f43f28cea0846f6b6ef2e67b235a766200d40bfbac96b8f0b07d789fdc4dd",
+  "executable_path": "/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_twostep/gold/executable/program",
+  "executable_paths": {
+    "pbcalc": "/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_twostep/gold/executables/pbcalc"
+  },
+  "runtime_dependencies": [
+    "python3"
+  ],
+  "task_id": "mini_cli_twostep"
+}

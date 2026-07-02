@@ -1,0 +1,32 @@
+{
+  "branch_coverage": null,
+  "function_coverage": 1.0,
+  "gaps": [
+    {
+      "end_line": 73,
+      "file_path": "artifacts/impressive_demo_roi/gold/executable/program",
+      "function_name": "main",
+      "priority": 3.2877,
+      "reason": "2 uncovered executable line(s)",
+      "start_line": 72
+    }
+  ],
+  "iteration": 1,
+  "line_coverage": 0.9622641509433962,
+  "task_id": "impressive_demo_roi",
+  "uncovered_files": [
+    "artifacts/impressive_demo_roi/gold/executable/program"
+  ],
+  "uncovered_functions": [
+    "artifacts/impressive_demo_roi/gold/executable/program:main"
+  ],
+  "uncovered_line_ranges": [
+    {
+      "end_line": 73,
+      "file_path": "artifacts/impressive_demo_roi/gold/executable/program",
+      "function_name": "main",
+      "missing_lines": 2,
+      "start_line": 72
+    }
+  ]
+}

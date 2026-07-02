@@ -1,0 +1,6 @@
+[project]
+name = "pkgcalc-fixture"
+version = "0.1.0"
+
+[project.scripts]
+pkgcalc = "pkgcalc.cli:main"

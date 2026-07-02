@@ -1,0 +1,16 @@
+{
+  "assertion_strength_score": 1.0,
+  "correctness_gate_passed": true,
+  "correctness_score": 1.0,
+  "coverage_score": 0.9622641509433962,
+  "determinism_score": 1.0,
+  "dummy_rejection_score": 1.0,
+  "efficiency_multiplier": 1.0072201964841325,
+  "final_score": 0.9792460808383844,
+  "notes": [
+    "Python coverage was measured and included in the quality score.",
+    "Economic-importance scoring is intentionally omitted from this implementation."
+  ],
+  "redundancy_penalty": 0.48,
+  "task_id": "impressive_demo_roi"
+}

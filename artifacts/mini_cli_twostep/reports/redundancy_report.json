@@ -1,0 +1,206 @@
+{
+  "items": [
+    {
+      "cluster_id": "1f70f20db2",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_0_version"
+    },
+    {
+      "cluster_id": "1f70f20db2",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_0_version"
+    },
+    {
+      "cluster_id": "2591630c6a",
+      "cluster_size": 4,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.75,
+      "test_id": "test_iter_0_4_stats_1_2"
+    },
+    {
+      "cluster_id": "2591630c6a",
+      "cluster_size": 4,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.75,
+      "test_id": "test_iter_0_9_stats_1"
+    },
+    {
+      "cluster_id": "2591630c6a",
+      "cluster_size": 4,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.75,
+      "test_id": "test_iter_1_4_stats_1_2"
+    },
+    {
+      "cluster_id": "2591630c6a",
+      "cluster_size": 4,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.75,
+      "test_id": "test_iter_1_9_stats_1"
+    },
+    {
+      "cluster_id": "5f22225f66",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_5_help"
+    },
+    {
+      "cluster_id": "5f22225f66",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_5_help"
+    },
+    {
+      "cluster_id": "60868d1da3",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_3_mul_1_2"
+    },
+    {
+      "cluster_id": "60868d1da3",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_3_mul_1_2"
+    },
+    {
+      "cluster_id": "790a510511",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_10_pbcalc"
+    },
+    {
+      "cluster_id": "790a510511",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_10_pbcalc"
+    },
+    {
+      "cluster_id": "810b333177",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_iter_1_11_add_not_a_number"
+    },
+    {
+      "cluster_id": "85d7f9449a",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_iter_1_13_stats_not_a_number"
+    },
+    {
+      "cluster_id": "9854a0a7a2",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_7_add_1"
+    },
+    {
+      "cluster_id": "9854a0a7a2",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_7_add_1"
+    },
+    {
+      "cluster_id": "c293390e42",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_iter_1_12_mul_not_a_number"
+    },
+    {
+      "cluster_id": "d1262f976d",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_2_add_1_2"
+    },
+    {
+      "cluster_id": "d1262f976d",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_2_add_1_2"
+    },
+    {
+      "cluster_id": "ebaa1a058c",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_1_add_2_5_1_25"
+    },
+    {
+      "cluster_id": "ebaa1a058c",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_1_add_2_5_1_25"
+    },
+    {
+      "cluster_id": "eeed416e9d",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_6_h"
+    },
+    {
+      "cluster_id": "eeed416e9d",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_6_h"
+    },
+    {
+      "cluster_id": "f198c5136f",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_0_8_mul_1"
+    },
+    {
+      "cluster_id": "f198c5136f",
+      "cluster_size": 2,
+      "coverage_delta": null,
+      "recommended_action": "downweight_or_qc_review",
+      "redundancy_penalty": 0.5,
+      "test_id": "test_iter_1_8_mul_1"
+    }
+  ],
+  "redundancy_score": 0.48,
+  "task_id": "mini_cli_twostep"
+}

@@ -1,0 +1,39 @@
+{
+  "commands": [
+    {
+      "category": "help",
+      "command": "--help",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    },
+    {
+      "category": "version",
+      "command": "--version",
+      "notes": null,
+      "observables": [
+        "stdout",
+        "exit_code"
+      ]
+    }
+  ],
+  "config_files": [],
+  "env_vars": [
+    "PBGEN_EXECUTABLE"
+  ],
+  "error_cases": [
+    "invalid arguments"
+  ],
+  "file_inputs": [],
+  "global_flags": [
+    "--h",
+    "--v",
+    "-h"
+  ],
+  "side_effects": [],
+  "stdin_supported": false,
+  "subcommand_flags": {},
+  "task_id": "mini_cli"
+}

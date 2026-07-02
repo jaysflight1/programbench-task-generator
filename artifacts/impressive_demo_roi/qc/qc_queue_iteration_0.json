@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "file_path": null,
+      "iteration": 0,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_4_stats_1_2"
+    },
+    {
+      "file_path": null,
+      "iteration": 0,
+      "queue": "redundant high-assertion queue",
+      "reason": "cluster 2591630c6a contains 2 similar tests",
+      "recommendation": "downweight or keep only if behavior variant is justified",
+      "severity": "medium",
+      "test_id": "test_iter_0_9_stats_1"
+    }
+  ],
+  "summary": {
+    "counts_by_queue": {
+      "redundant high-assertion queue": 2
+    },
+    "total_items": 2
+  },
+  "task_id": "impressive_demo_roi"
+}

@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+PYTHON_EXECUTABLE = '/Users/jaylanroy/Desktop/pb/programbench-generator/.venv/bin/python'
+TARGET_EXECUTABLE = '/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_cov/gold/executable/program'
+COVERAGE_DIR = '/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_cov/reports/coverage_iteration_0/coverage-run-cc4fe72f6e74437fba6d7d6cf2120e4b'
+DATA_FILE = '/Users/jaylanroy/Desktop/pb/programbench-generator/artifacts/mini_cli_cov/reports/coverage_iteration_0/coverage-run-cc4fe72f6e74437fba6d7d6cf2120e4b/.coverage'
+
+
+def main() -> int:
+    env = os.environ.copy()
+    env["COVERAGE_FILE"] = DATA_FILE
+    command = [
+        PYTHON_EXECUTABLE,
+        "-m",
+        "coverage",
+        "run",
+        "--parallel-mode",
+        "--data-file",
+        DATA_FILE,
+        TARGET_EXECUTABLE,
+        *sys.argv[1:],
+    ]
+    completed = subprocess.run(command, check=False, env=env)
+    return completed.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

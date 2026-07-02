@@ -1,0 +1,54 @@
+{
+  "items": [
+    {
+      "cluster_id": "0854e98573",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_stats_reports_count_sum_mean_min_and_max"
+    },
+    {
+      "cluster_id": "75d4b41d12",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_mul_multiplies_decimal_values"
+    },
+    {
+      "cluster_id": "8370dcbe95",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_help_lists_supported_commands"
+    },
+    {
+      "cluster_id": "997f45bde9",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_add_sums_signed_decimal_values"
+    },
+    {
+      "cluster_id": "ab4ba4a1ee",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_version_reports_program_identity"
+    },
+    {
+      "cluster_id": "cd0d01a5e6",
+      "cluster_size": 1,
+      "coverage_delta": null,
+      "recommended_action": "keep",
+      "redundancy_penalty": 0.0,
+      "test_id": "test_invalid_number_returns_clear_error"
+    }
+  ],
+  "redundancy_score": 0.0,
+  "task_id": "mini_cli_run"
+}
