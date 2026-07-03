@@ -29,6 +29,7 @@ from pbgen.security import is_command_allowed
 from pbgen.subprocess_utils import run_command
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
 from pbgen.testgen.output_normalization import apply_observed_outputs
+from pbgen.testgen.diversity import behavior_category_counts
 
 
 SHELL_OPERATORS = {
@@ -1037,6 +1038,7 @@ def _write_agentic_diagnostics(
             "prompt_version": AgenticTestGenerationBackend.prompt_version,
             "accepted": accepted,
             "rejected": rejected,
+            "behavior_category_counts": behavior_category_counts(diagnostics),
             "diagnostics": diagnostics,
         },
     )

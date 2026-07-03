@@ -118,6 +118,8 @@ def test_backend_records_gold_outputs_and_appends_iteration_files(tmp_path: Path
         )
     )
     assert diagnostics["accepted"] == len(suite.cases)
+    assert diagnostics["behavior_category_counts"]["example"] >= 1
+    assert diagnostics["behavior_category_counts"]["edge-case"] >= 1
     assert diagnostics["diagnostics"][0]["revision"] == (
         "expected behavior replaced with observed gold behavior"
     )

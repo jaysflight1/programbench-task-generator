@@ -17,6 +17,7 @@ from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutpu
 from pbgen.serialization import write_data
 from pbgen.security import is_command_allowed
 from pbgen.testgen.model_safety import ModelSafetyDiagnostic, validate_model_generated_pytest
+from pbgen.testgen.diversity import REQUIRED_BEHAVIOR_CATEGORIES, behavior_category_counts
 from pbgen.testgen.output_normalization import apply_observed_outputs
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
 from pbgen.testgen.test_writer import TestGenerationBackend, write_executable_test_suite
@@ -193,6 +194,7 @@ class ModelTestGenerationBackend(TestGenerationBackend):
                     "accepted": True,
                     "proposal_index": index,
                     "test_id": case.test_id,
+                    "behavior_category": case.behavior_category,
                     "metadata": proposal.metadata,
                     "observed_gold": executable_path is not None,
                 }
@@ -279,7 +281,10 @@ def render_model_generation_prompt(prompt: TestGenerationPrompt) -> str:
         "- Propose only argv fragments for the target executable; never shell commands.\n"
         "- Do not request network access, package installation, deletion, filesystem "
         "mutation, absolute local paths, or '..' path traversal.\n"
-        "- Prefer positive, negative, stdin, file-input, env/config, and edge cases.\n"
+        "- Cover the full behavior mix when supported by the surface: "
+        f"{', '.join(REQUIRED_BEHAVIOR_CATEGORIES)}.\n"
+        "- Prefer positive, negative, stdin, file-input, env/config, filesystem-output, "
+        "boundary, flag, and error-formatting cases over more help/version variants.\n"
         "- If exact expected output is uncertain, omit it; gold observation will fill it.\n\n"
         "Legacy fallback: raw pytest JSON with a top-level 'tests' array is still accepted, "
         "but structured 'test_cases' is strongly preferred. Legacy pytest must use only "
@@ -579,6 +584,8 @@ def _write_generation_diagnostics(
         {
             "iteration": iteration,
             "prompt_version": MODEL_PROMPT_VERSION,
+            "required_behavior_categories": REQUIRED_BEHAVIOR_CATEGORIES,
+            "behavior_category_counts": behavior_category_counts(diagnostics),
             "diagnostics": diagnostics,
         },
     )

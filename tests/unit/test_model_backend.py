@@ -116,7 +116,9 @@ def test_model_backend_writes_structured_cases_after_gold_observation(tmp_path: 
     assert len(suite.cases) == 1
     assert suite.cases[0].expected_exit_code == 0
     assert suite.cases[0].expected_stdout.exact == "Usage: fake [--help]\n"
+    assert suite.cases[0].behavior_category == "help"
     assert suite.cases[0].provenance["gold_observed"] == "true"
+    assert diagnostics["behavior_category_counts"] == {"help": 1}
     assert any(
         item.get("reason") == "duplicate structured test case"
         for item in diagnostics["diagnostics"]
@@ -215,6 +217,9 @@ def test_rendered_model_prompt_contains_surface_and_constraints(tmp_path: Path) 
     assert "PBGEN_EXECUTABLE" in prompt_text
     assert "demo" in prompt_text
     assert "--help" in prompt_text
+    assert "malformed-input" in prompt_text
+    assert "filesystem-output" in prompt_text
+    assert "error-formatting" in prompt_text
 
 
 def _prompt(tmp_path: Path, executable_path: Path | None = None) -> GenerationPrompt:
