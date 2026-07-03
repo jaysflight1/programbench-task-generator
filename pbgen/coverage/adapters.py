@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import sys
@@ -199,6 +200,7 @@ class CFamilyCoverageAdapter(CoverageAdapter):
         work_dir: Path | None = None,
         gcov_executable: str = "gcov",
         timeout_seconds: int = 120,
+        preferred_executable_names: list[str] | None = None,
     ) -> None:
         self.spec = spec
         self.task_id = task_id or spec.task_id
@@ -206,6 +208,7 @@ class CFamilyCoverageAdapter(CoverageAdapter):
         self.work_dir = work_dir
         self.gcov_executable = gcov_executable
         self.timeout_seconds = timeout_seconds
+        self.preferred_executable_names = preferred_executable_names or _preferred_executable_names(spec)
         self._instrumented: CFamilyCoverageBuild | None = None
 
     def instrument_build(self, repo_path: Path) -> Path:
@@ -221,13 +224,18 @@ class CFamilyCoverageAdapter(CoverageAdapter):
             instrumented_repo,
             ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv", "build"),
         )
-        build_system = self.spec.build_system or _first_build_system(self.spec)
+        build_system = _coverage_build_system(self.spec, instrumented_repo)
         if build_system == "cmake":
             build = self._build_cmake(instrumented_repo)
         elif build_system == "c-single":
             build = self._build_single_source(instrumented_repo)
-        else:
+        elif build_system == "make":
             build = self._build_make(instrumented_repo)
+        else:
+            raise CoverageError(
+                "Could not select a C/C++ coverage build system. "
+                "Expected CMake, Make, or c-single metadata."
+            )
         self._instrumented = build
         return build.executable_path
 
@@ -277,7 +285,10 @@ class CFamilyCoverageAdapter(CoverageAdapter):
         if not result.ok:
             raise CoverageError(_format_command_failure("coverage make build failed", result))
         return CFamilyCoverageBuild(
-            executable_path=_select_native_executable(repo_path),
+            executable_path=_select_native_executable(
+                repo_path,
+                preferred_names=self.preferred_executable_names,
+            ),
             repo_path=repo_path,
             build_dir=None,
         )
@@ -297,21 +308,29 @@ class CFamilyCoverageAdapter(CoverageAdapter):
                 "-DCMAKE_C_FLAGS=--coverage -O0 -g",
                 "-DCMAKE_CXX_FLAGS=--coverage -O0 -g",
                 "-DCMAKE_EXE_LINKER_FLAGS=--coverage",
+                *_custom_cmake_definitions(self.spec),
             ],
             cwd=repo_path,
             timeout_seconds=self.timeout_seconds,
         )
         if not configure.ok:
             raise CoverageError(_format_command_failure("coverage cmake configure failed", configure))
+        build_command = ["cmake", "--build", "build"]
+        target = _custom_cmake_target(self.spec)
+        if target:
+            build_command.extend(["--target", target])
         build = run_command(
-            ["cmake", "--build", "build"],
+            build_command,
             cwd=repo_path,
             timeout_seconds=self.timeout_seconds,
         )
         if not build.ok:
             raise CoverageError(_format_command_failure("coverage cmake build failed", build))
         return CFamilyCoverageBuild(
-            executable_path=_select_native_executable(build_dir),
+            executable_path=_select_native_executable(
+                build_dir,
+                preferred_names=self.preferred_executable_names,
+            ),
             repo_path=repo_path,
             build_dir=build_dir,
         )
@@ -566,7 +585,114 @@ def _first_build_system(spec: TaskSpec) -> str | None:
     return spec.build_candidates[0].build_system if spec.build_candidates else None
 
 
-def _select_native_executable(root: Path) -> Path:
+def _coverage_build_system(spec: TaskSpec, repo_path: Path) -> str | None:
+    build_system = (spec.build_system or _first_build_system(spec) or "").lower()
+    if build_system in {"cmake", "make", "c-single"}:
+        return build_system
+    if build_system == "custom-command":
+        if _custom_command_uses_cmake(spec) or (repo_path / "CMakeLists.txt").is_file():
+            return "cmake"
+        if _custom_command_uses_make(spec) or _has_makefile(repo_path):
+            return "make"
+        return None
+    if (repo_path / "CMakeLists.txt").is_file():
+        return "cmake"
+    if _has_makefile(repo_path):
+        return "make"
+    return build_system or None
+
+
+def _custom_command_uses_cmake(spec: TaskSpec) -> bool:
+    return any(
+        "cmake" in {token.lower() for token in _command_tokens(command)}
+        for candidate in spec.build_candidates
+        for command in candidate.commands
+    )
+
+
+def _custom_command_uses_make(spec: TaskSpec) -> bool:
+    return any(
+        bool({"make", "gmake"} & {token.lower() for token in _command_tokens(command)})
+        for candidate in spec.build_candidates
+        for command in candidate.commands
+    )
+
+
+def _command_tokens(command: list[str]) -> list[str]:
+    tokens: list[str] = []
+    for token in command:
+        try:
+            split = shlex.split(token)
+        except ValueError:
+            split = [token]
+        tokens.extend(
+            Path(item).name if index == 0 else item
+            for index, item in enumerate(split)
+        )
+    return tokens
+
+
+def _custom_cmake_definitions(spec: TaskSpec) -> list[str]:
+    return sorted(
+        {
+            token
+            for token in _custom_command_tokens(spec)
+            if token.startswith("-D")
+        }
+    )
+
+
+def _custom_cmake_target(spec: TaskSpec) -> str | None:
+    tokens = _custom_command_tokens(spec)
+    for index, token in enumerate(tokens):
+        if token == "--target" and index + 1 < len(tokens):
+            target = tokens[index + 1]
+            if target and not target.startswith("-"):
+                return target
+    return None
+
+
+def _custom_command_tokens(spec: TaskSpec) -> list[str]:
+    return [
+        token
+        for candidate in spec.build_candidates
+        for command in candidate.commands
+        for token in _command_tokens(command)
+    ]
+
+
+def _has_makefile(repo_path: Path) -> bool:
+    return any((repo_path / name).is_file() for name in ("GNUmakefile", "Makefile", "makefile"))
+
+
+def _preferred_executable_names(spec: TaskSpec) -> list[str]:
+    names: list[str] = []
+    for value in spec.binary_names:
+        names.extend(_executable_name_variants(value))
+    for candidate in spec.build_candidates:
+        for value in candidate.output_hints:
+            names.extend(_executable_name_variants(value))
+        for value in candidate.entrypoint_paths:
+            names.extend(_executable_name_variants(value))
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        normalized = name.strip().strip("./")
+        if normalized and normalized.lower() not in seen:
+            seen.add(normalized.lower())
+            unique.append(normalized)
+    return unique
+
+
+def _executable_name_variants(value: str) -> list[str]:
+    path = Path(value)
+    variants = [value, path.name, path.stem]
+    if value.startswith("build/"):
+        variants.append(value.removeprefix("build/"))
+    return variants
+
+
+def _select_native_executable(root: Path, *, preferred_names: list[str] | None = None) -> Path:
     outputs = [
         path
         for path in sorted(root.rglob("*"))
@@ -577,7 +703,32 @@ def _select_native_executable(root: Path) -> Path:
     ]
     if not outputs:
         raise CoverageError(f"No native executable produced under {root}")
-    return sorted(outputs, key=lambda path: (len(path.relative_to(root).parts), path.name))[0]
+    preferred = {
+        variant.lower().strip("./")
+        for name in (preferred_names or [])
+        for variant in _executable_name_variants(name)
+        if variant.strip()
+    }
+    return sorted(
+        outputs,
+        key=lambda path: (
+            _native_executable_preference(path, root, preferred),
+            len(path.relative_to(root).parts),
+            path.name,
+        ),
+    )[0]
+
+
+def _native_executable_preference(path: Path, root: Path, preferred: set[str]) -> int:
+    if not preferred:
+        return 0
+    relative = path.relative_to(root).as_posix().lower()
+    candidates = {relative, path.name.lower(), path.stem.lower()}
+    if candidates & preferred:
+        return 0
+    if any(relative.endswith(name) for name in preferred):
+        return 0
+    return 1
 
 
 def _has_ignored_native_part(path: Path) -> bool:
@@ -614,20 +765,21 @@ def _run_gcov_for_source(
     output_dir: Path,
     timeout_seconds: int,
 ) -> CommandResult | None:
-    object_dirs = [repo_path]
+    object_targets = _gcov_object_targets(source, repo_path, build_dir)
     if build_dir is not None:
-        object_dirs.extend([build_dir, *sorted(path for path in build_dir.rglob("*") if path.is_dir())])
+        object_targets.extend([build_dir, *sorted(path for path in build_dir.rglob("*") if path.is_dir())])
+    object_targets.append(repo_path)
     seen: set[Path] = set()
-    for object_dir in object_dirs:
-        if object_dir in seen:
+    for object_target in object_targets:
+        if object_target in seen:
             continue
-        seen.add(object_dir)
+        seen.add(object_target)
         result = run_command(
             [
                 gcov_executable,
                 "-b",
                 "-o",
-                str(object_dir),
+                str(object_target),
                 str(source),
             ],
             cwd=output_dir,
@@ -636,6 +788,19 @@ def _run_gcov_for_source(
         if result.ok and "Lines executed:" in result.stdout:
             return result
     return None
+
+
+def _gcov_object_targets(source: Path, repo_path: Path, build_dir: Path | None) -> list[Path]:
+    """Return concrete gcov data files before directory fallbacks."""
+
+    roots = [repo_path]
+    if build_dir is not None:
+        roots.insert(0, build_dir)
+    names = {f"{source.name}.gcno", f"{source.stem}.gcno"}
+    targets: list[Path] = []
+    for root in roots:
+        targets.extend(path for path in sorted(root.rglob("*")) if path.is_file() and path.name in names)
+    return targets
 
 
 def _parse_gcov_stdout(stdout: str) -> tuple[float, int]:
