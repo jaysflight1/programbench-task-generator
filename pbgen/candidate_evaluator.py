@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import shutil
 from pathlib import Path
 import stat
@@ -81,6 +81,8 @@ def evaluate_source_submission(
     """Build a candidate source tree and run released hidden tests."""
 
     package = _resolve_evaluation_package(submission.package_path)
+    if submission.output_dir is not None:
+        package = _with_external_output_dir(package, submission.output_dir)
     if submission.submission_source is None:
         raise PBGenError("evaluate-submission requires a submission source directory.")
     if submission.build_script is None:
@@ -102,6 +104,7 @@ def evaluate_source_submission(
             copied_source=source_dir,
             run_dir=run_dir,
         )
+        _preflight_runner(command_runner)
         command = _build_command(build_script)
         enforce_command_allowed(
             command,
@@ -225,6 +228,11 @@ def _resolve_evaluation_package(package_path: Path | None) -> _EvaluationPackage
     )
 
 
+def _with_external_output_dir(package: _EvaluationPackage, output_dir: Path) -> _EvaluationPackage:
+    output = output_dir.expanduser().resolve()
+    return replace(package, reports_dir=output / "reports", evaluator_dir=output)
+
+
 def _copy_source_tree(source: Path, destination: Path) -> None:
     source = source.expanduser().resolve()
     if not source.is_dir():
@@ -264,6 +272,12 @@ def _command_runner(config: PBGenConfig, run_dir: Path) -> CommandRunner:
     if _uses_docker_runner(config):
         return DockerNoNetworkCommandRunner(run_dir, image=config.docker_image)
     return LocalCommandRunner()
+
+
+def _preflight_runner(runner: CommandRunner) -> None:
+    preflight = getattr(runner, "preflight", None)
+    if callable(preflight):
+        preflight()
 
 
 def _sandbox_runner(config: PBGenConfig, runner: CommandRunner) -> CommandRunner | None:

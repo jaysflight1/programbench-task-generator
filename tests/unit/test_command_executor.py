@@ -6,6 +6,7 @@ import pytest
 
 from pbgen.errors import PBGenError
 from pbgen.security.command_executor import DockerNoNetworkCommandRunner
+from pbgen.subprocess_utils import CommandResult
 
 
 def test_docker_no_network_args_mount_workspace_and_disable_network(tmp_path: Path) -> None:
@@ -55,6 +56,27 @@ def test_docker_no_network_args_reject_invalid_env_name(tmp_path: Path) -> None:
 
     with pytest.raises(PBGenError, match="Invalid environment variable"):
         runner.docker_args(["python3"], env={"bad-name": "value"})
+
+
+def test_docker_preflight_reports_missing_local_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pbgen.security.command_executor.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "pbgen.security.command_executor.run_command",
+        lambda *args, **kwargs: CommandResult(
+            args=["docker", "image", "inspect", "missing:image"],
+            returncode=1,
+            stdout="",
+            stderr="No such image",
+            cwd=tmp_path,
+        ),
+    )
+    runner = DockerNoNetworkCommandRunner(tmp_path, image="missing:image")
+
+    with pytest.raises(PBGenError, match="not available locally"):
+        runner.preflight()
 
 
 def _option_value(args: list[str], option: str) -> str:

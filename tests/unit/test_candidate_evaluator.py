@@ -150,6 +150,34 @@ def test_source_submission_reports_hidden_test_execution_error(
     assert report.reason == "hidden tests require canonical cases"
 
 
+def test_source_submission_can_write_candidate_artifacts_outside_evaluator_package(
+    tmp_path: Path,
+) -> None:
+    evaluator = _write_evaluator_package(
+        tmp_path,
+        [_case("test_help", ["--help"], "Usage: candidate\n")],
+    )
+    source, build_script = _write_candidate_source(tmp_path, program_body=_passing_program())
+    output_dir = tmp_path / "candidate-output"
+
+    report = evaluate_source_submission(
+        CandidateSubmission(
+            package_path=evaluator,
+            submission_source=source,
+            build_script=build_script,
+            output_dir=output_dir,
+        ),
+        _trusted_config(tmp_path),
+    )
+
+    assert report.resolved is True
+    assert report.build_log_path == output_dir / "candidate_runs" / "latest" / "build.log"
+    assert (output_dir / "candidate_runs" / "latest" / "source" / "out" / "program").exists()
+    assert (output_dir / "reports" / "candidate_evaluation_report.json").exists()
+    assert not (evaluator / "candidate_runs").exists()
+    assert not (evaluator / "reports" / "candidate_evaluation_report.json").exists()
+
+
 def test_docker_policy_reports_unavailable_docker_without_host_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

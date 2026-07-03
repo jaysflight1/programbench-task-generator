@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                     package_path=Path(args.package),
                     submission_source=Path(args.submission_source),
                     build_script=Path(args.build_script),
+                    output_dir=Path(args.output_dir) if args.output_dir else None,
                 ),
                 config,
             )
@@ -345,6 +346,10 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--package", required=True, help="Path to released evaluator package or manifest")
     evaluate.add_argument("--submission-source", required=True, help="Candidate source tree")
     evaluate.add_argument("--build-script", required=True, help="Candidate build script")
+    evaluate.add_argument(
+        "--output-dir",
+        help="Optional directory for candidate run artifacts and reports outside the evaluator package",
+    )
     evaluate.add_argument(
         "--execution-policy",
         choices=["trusted-local", "sandboxed-local", "docker-no-network"],

@@ -520,6 +520,7 @@ class CandidateSubmission(PBModel):
     submission_source: Path | None = None
     build_script: Path | None = None
     executable_path: Path | None = None
+    output_dir: Path | None = None
 
 
 class CandidateEvaluationReport(PBModel):

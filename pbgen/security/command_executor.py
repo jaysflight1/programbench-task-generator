@@ -39,12 +39,26 @@ class DockerNoNetworkCommandRunner:
     ) -> CommandResult:
         """Run a command in a no-network Docker container."""
 
+        self.preflight()
+        docker_args = self.docker_args(args, cwd=cwd, env=env, stdin=stdin)
+        return run_command(docker_args, stdin=stdin, timeout_seconds=timeout_seconds)
+
+    def preflight(self) -> None:
+        """Validate Docker and the configured image before execution."""
+
         if shutil.which(self.docker_executable) is None:
             raise PBGenError(
                 "Docker executable is not available for docker-no-network execution."
             )
-        docker_args = self.docker_args(args, cwd=cwd, env=env, stdin=stdin)
-        return run_command(docker_args, stdin=stdin, timeout_seconds=timeout_seconds)
+        result = run_command(
+            [self.docker_executable, "image", "inspect", self.image],
+            timeout_seconds=20,
+        )
+        if not result.ok:
+            raise PBGenError(
+                f"Docker image {self.image!r} is not available locally for "
+                "docker-no-network execution."
+            )
 
     def docker_args(
         self,
