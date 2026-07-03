@@ -17,6 +17,7 @@ from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutpu
 from pbgen.serialization import write_data
 from pbgen.security import is_command_allowed
 from pbgen.testgen.model_safety import ModelSafetyDiagnostic, validate_model_generated_pytest
+from pbgen.testgen.output_normalization import apply_observed_outputs
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
 from pbgen.testgen.test_writer import TestGenerationBackend, write_executable_test_suite
 
@@ -438,17 +439,13 @@ def _observe_case_on_gold(case: ExecutableTestCase, executable_path: Path) -> Ex
             raise TestGenerationError(f"gold observation timed out after {case.timeout_seconds}s") from exc
         except OSError as exc:
             raise TestGenerationError(f"could not observe gold behavior: {exc}") from exc
-    return case.model_copy(
-        update={
-            "expected_exit_code": completed.returncode,
-            "expected_stdout": ExpectedOutput(exact=completed.stdout),
-            "expected_stderr": ExpectedOutput(exact=completed.stderr),
-            "provenance": {
-                **case.provenance,
-                "gold_observed": "true",
-            },
-        }
+    observed = apply_observed_outputs(
+        case,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+        extra_provenance={"gold_observed": "true"},
     )
+    return observed.model_copy(update={"expected_exit_code": completed.returncode})
 
 
 def _parse_json_response(text: str) -> list[ModelGeneratedTest] | None:

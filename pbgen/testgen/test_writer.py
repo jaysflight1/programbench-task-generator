@@ -28,6 +28,7 @@ from pbgen.serialization import write_data
 from pbgen.security import is_command_allowed
 from pbgen.subprocess_utils import run_command
 from pbgen.testgen.prompt_builder import TestGenerationPrompt
+from pbgen.testgen.output_normalization import apply_observed_outputs
 
 
 SHELL_OPERATORS = {
@@ -472,18 +473,16 @@ def _observe_case_on_gold(case: ExecutableTestCase, executable_path: Path) -> Ex
             raise TestGenerationError(f"could not observe gold behavior: {exc}") from exc
     if len(result.stdout) + len(result.stderr) > MAX_CAPTURED_OUTPUT_CHARS:
         raise TestGenerationError("gold output exceeded capture limit")
-    return case.model_copy(
-        update={
-            "expected_exit_code": result.returncode,
-            "expected_stdout": ExpectedOutput(exact=result.stdout),
-            "expected_stderr": ExpectedOutput(exact=result.stderr),
-            "provenance": {
-                **case.provenance,
-                "gold_observed": "true",
-                "revision": "observed_gold_behavior",
-            },
-        }
+    observed = apply_observed_outputs(
+        case,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        extra_provenance={
+            "gold_observed": "true",
+            "revision": "observed_gold_behavior",
+        },
     )
+    return observed.model_copy(update={"expected_exit_code": result.returncode})
 
 
 def _examples_for_prompt(
