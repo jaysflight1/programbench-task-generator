@@ -117,7 +117,7 @@ def package_cleanroom(task_id: str, config: PBGenConfig) -> CleanroomPackageInfo
             paths.generated_tests,
             evaluator / "hidden_tests",
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "*.pyc"),
         )
     if paths.reports.exists():
         shutil.copytree(paths.reports, evaluator / "reports", dirs_exist_ok=True)

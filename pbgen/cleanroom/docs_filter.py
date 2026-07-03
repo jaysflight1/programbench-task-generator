@@ -8,6 +8,7 @@ from pathlib import Path
 
 EXCLUDED_DOC_PATTERNS = (
     ".git",
+    ".git*",
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",
@@ -56,6 +57,8 @@ def _excluded_public_doc(path: Path) -> bool:
     lowered = path.name.lower()
     return (
         path.suffix.lower() in SOURCE_SUFFIXES
+        or lowered.startswith(".git")
+        or lowered == ".ds_store"
         or lowered.startswith("test")
         or "hidden" in lowered
         or "generated" in lowered

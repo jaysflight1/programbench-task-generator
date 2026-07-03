@@ -17,16 +17,19 @@ def test_copy_public_docs_excludes_source_tests_and_generated_artifacts(tmp_path
     docs = repo / "docs"
     docs.mkdir(parents=True)
     (docs / "README.md").write_text("public docs\n", encoding="utf-8")
+    (docs / ".gitignore").write_text("build/\n", encoding="utf-8")
     (docs / "helper.py").write_text("secret source\n", encoding="utf-8")
     (docs / "test_plan.md").write_text("hidden_tests/test_cases_iteration_0.json\n", encoding="utf-8")
     (docs / "tests").mkdir()
     (docs / "tests" / "test_behavior.py").write_text("secret\n", encoding="utf-8")
     output = tmp_path / "out"
 
-    copied = copy_public_docs(repo, ["docs"], output)
+    copied = copy_public_docs(repo, ["docs", "docs/.gitignore"], output)
 
     assert copied
     assert (output / "docs" / "README.md").exists()
+    assert not (output / "docs" / ".gitignore").exists()
+    assert not (output / ".gitignore").exists()
     assert not (output / "docs" / "helper.py").exists()
     assert not (output / "docs" / "test_plan.md").exists()
     assert not (output / "docs" / "tests").exists()
@@ -36,13 +39,18 @@ def test_copy_assets_rejects_source_and_hidden_paths(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "data.txt").write_text("public data\n", encoding="utf-8")
+    (repo / "cmake").mkdir()
+    (repo / "cmake" / "CMakeCache.txt").write_text(
+        "PROJECT_SOURCE_DIR:STATIC=/Users/reviewer/work/repo\n",
+        encoding="utf-8",
+    )
     (repo / "model.py").write_text("source\n", encoding="utf-8")
     (repo / "hidden_tests").mkdir()
     (repo / "hidden_tests" / "fixture.txt").write_text("hidden\n", encoding="utf-8")
 
     copied = copy_assets(
         repo,
-        ["data.txt", "model.py", "hidden_tests/fixture.txt"],
+        ["data.txt", "model.py", "hidden_tests/fixture.txt", "cmake/CMakeCache.txt"],
         tmp_path / "assets",
     )
 

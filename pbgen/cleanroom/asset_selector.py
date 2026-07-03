@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -14,11 +15,33 @@ FORBIDDEN_ASSET_PARTS = {
     ".ruff_cache",
     "tests",
     "test",
+    "build",
     "generated_tests",
     "hidden_tests",
     "artifacts",
 }
 SOURCE_SUFFIXES = {".py", ".c", ".cc", ".cpp", ".h", ".hpp", ".rs", ".go", ".java"}
+TEXT_SUFFIXES = {
+    ".cfg",
+    ".cmake",
+    ".csv",
+    ".json",
+    ".jsonl",
+    ".md",
+    ".rst",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+FORBIDDEN_CONTENT_PATTERNS = [
+    re.compile(r"test_cases_iteration_\d+", re.IGNORECASE),
+    re.compile(r"generated_tests", re.IGNORECASE),
+    re.compile(r"hidden_tests", re.IGNORECASE),
+    re.compile(r"generation_events", re.IGNORECASE),
+    re.compile(r"/(?:private/)?(?:tmp|var/folders)/", re.IGNORECASE),
+    re.compile(r"/Users/[^/\s]+/", re.IGNORECASE),
+]
 
 
 def copy_assets(repo_path: Path, asset_paths: list[str], output_dir: Path) -> list[Path]:
@@ -40,4 +63,18 @@ def _asset_allowed(rel: str, source: Path) -> bool:
     if source.is_symlink():
         return False
     parts = {part.lower() for part in Path(rel).parts}
-    return source.suffix.lower() not in SOURCE_SUFFIXES and not parts & FORBIDDEN_ASSET_PARTS
+    return (
+        source.suffix.lower() not in SOURCE_SUFFIXES
+        and not parts & FORBIDDEN_ASSET_PARTS
+        and not _asset_content_leaks(source)
+    )
+
+
+def _asset_content_leaks(source: Path) -> bool:
+    data = source.read_bytes()
+    if b"\0" in data[:4096]:
+        return False
+    if source.suffix.lower() not in TEXT_SUFFIXES and len(data) > 200_000:
+        return False
+    text = data.decode("utf-8", errors="ignore")
+    return any(pattern.search(text) for pattern in FORBIDDEN_CONTENT_PATTERNS)
