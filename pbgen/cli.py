@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import sys
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 from pbgen.build.build_agent import build_gold
 from pbgen.candidate_evaluator import evaluate_executable_candidate, evaluate_source_submission
@@ -38,6 +39,12 @@ from pbgen.schemas import (
     TaskProfile,
 )
 from pbgen.serialization import read_data
+from pbgen.solver.openai_solver import (
+    DEFAULT_RESPONSES_ENDPOINT,
+    DEFAULT_SOLVER_MODEL,
+    OpenAISolverConfig,
+    solve_with_openai,
+)
 from pbgen.submission_export import create_submission_archive
 from pbgen.task_constructor import construct_task_profile
 from pbgen.task_profile import load_task_profile, resolve_profile_paths
@@ -108,6 +115,30 @@ def main(argv: list[str] | None = None) -> int:
                 model_name=args.model_name,
             )
             print(f"Wrote ProgramBench performance report: {json_path} and {markdown_path}")
+        elif args.command == "solve-with-openai":
+            solver_report = solve_with_openai(
+                OpenAISolverConfig(
+                    solver_package=Path(args.solver_package),
+                    output_dir=Path(args.output_dir),
+                    model_name=args.model_name or _default_solver_model_name(),
+                    attempt_id=args.attempt_id,
+                    max_rounds=args.max_rounds,
+                    reasoning_effort=args.reasoning_effort
+                    or os.environ.get("OPENAI_SOLVER_REASONING_EFFORT", "xhigh"),
+                    endpoint=args.endpoint or os.environ.get(
+                        "OPENAI_SOLVER_ENDPOINT",
+                        DEFAULT_RESPONSES_ENDPOINT,
+                    ),
+                    timeout_seconds=args.timeout_seconds,
+                    max_output_tokens=args.max_output_tokens,
+                    input_cost_per_1m=args.input_cost_per_1m,
+                    output_cost_per_1m=args.output_cost_per_1m,
+                )
+            )
+            print(
+                f"Wrote OpenAI solver candidate: {solver_report.candidate_source} "
+                f"(status: {solver_report.status}; calls: {solver_report.api_calls})"
+            )
         elif args.command == "construct-task":
             profile_path = Path(args.profile)
             profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
@@ -391,6 +422,22 @@ def _build_parser() -> argparse.ArgumentParser:
     performance_report.add_argument("--output", required=True, help="Markdown/JSON output path")
     performance_report.add_argument("--model-name", help="Optional model name override")
 
+    solver = sub.add_parser(
+        "solve-with-openai",
+        help="Generate a candidate source submission from a released solver package",
+    )
+    solver.add_argument("--solver-package", required=True, help="Path to released solver package")
+    solver.add_argument("--output-dir", required=True, help="Directory for candidate source and run metadata")
+    solver.add_argument("--model-name", help="OpenAI model name; defaults to solver/model environment")
+    solver.add_argument("--attempt-id", default="attempt-1", help="Candidate attempt identifier")
+    solver.add_argument("--max-rounds", type=int, default=3, help="Maximum repair rounds")
+    solver.add_argument("--reasoning-effort", help="Reasoning effort for reasoning models")
+    solver.add_argument("--endpoint", help="Responses API endpoint override")
+    solver.add_argument("--timeout-seconds", type=int, default=900, help="Per-call model timeout")
+    solver.add_argument("--max-output-tokens", type=int, help="Maximum model output tokens")
+    solver.add_argument("--input-cost-per-1m", type=float, help="Optional input-token cost per 1M tokens")
+    solver.add_argument("--output-cost-per-1m", type=float, help="Optional output-token cost per 1M tokens")
+
     gen = sub.add_parser("generate-tests", help="Generate behavioral tests")
     gen.add_argument("--task-id", required=True)
     gen.add_argument("--iterations", type=int, default=5)
@@ -463,6 +510,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     export.add_argument("--output", help="Optional zip output path")
     return parser
+
+
+def _default_solver_model_name() -> str:
+    return (
+        os.environ.get("OPENAI_SOLVER_MODEL")
+        or os.environ.get("PBGEN_HOSTED_MODEL_NAME")
+        or DEFAULT_SOLVER_MODEL
+    )
 
 
 def _add_generation_backend_args(parser: argparse.ArgumentParser) -> None:

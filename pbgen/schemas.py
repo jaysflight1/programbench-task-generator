@@ -612,6 +612,52 @@ class NoNetworkValidationReport(PBModel):
     candidate_report_path: Path | None = None
 
 
+class SolverVisibleFile(PBModel):
+    """One public file exposed to a candidate solver model."""
+
+    path: str
+    sha256: str
+    bytes: int
+
+
+class OpenAISolverRoundReport(PBModel):
+    """Audit metadata for one OpenAI candidate-solver repair round."""
+
+    round_index: int
+    prompt_path: Path
+    response_path: Path
+    prompt_sha256: str
+    response_sha256: str
+    accepted: bool
+    api_call_succeeded: bool
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    files_written: list[str] = Field(default_factory=list)
+    build_ok: bool = False
+    smoke_ok: bool = False
+    feedback: list[str] = Field(default_factory=list)
+
+
+class OpenAISolverRunReport(PBModel):
+    """Audit report for a model-generated ProgramBench candidate solution."""
+
+    task_id: str
+    solver_package: Path
+    output_dir: Path
+    candidate_source: Path
+    build_script: Path | None = None
+    model_name: str
+    attempt_id: str
+    reasoning_effort: str
+    max_rounds: int
+    api_calls: int
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    estimated_cost_usd: float | None = None
+    visible_file_manifest: list[SolverVisibleFile] = Field(default_factory=list)
+    rounds: list[OpenAISolverRoundReport] = Field(default_factory=list)
+    status: str
+    reason: str | None = None
+
+
 class GenerationEvent(PBModel):
     event_id: str
     task_id: str

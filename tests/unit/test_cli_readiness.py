@@ -120,6 +120,23 @@ def test_product_workflow_cli_commands_parse() -> None:
             "pbgen-eval:py-c",
         ]
     )
+    solver = parser.parse_args(
+        [
+            "solve-with-openai",
+            "--solver-package",
+            "artifacts/demo/packages/solver",
+            "--output-dir",
+            "solver_runs/gpt-5.5/demo",
+            "--model-name",
+            "gpt-5.5",
+            "--attempt-id",
+            "attempt-1",
+            "--max-rounds",
+            "3",
+            "--reasoning-effort",
+            "xhigh",
+        ]
+    )
     performance = parser.parse_args(
         [
             "write-performance-report",
@@ -149,6 +166,11 @@ def test_product_workflow_cli_commands_parse() -> None:
     assert evaluate.api_calls == 12
     assert evaluate.cost_usd == 0.5
     assert evaluate.docker_image == "pbgen-eval:py-c"
+    assert solver.command == "solve-with-openai"
+    assert solver.solver_package == "artifacts/demo/packages/solver"
+    assert solver.output_dir == "solver_runs/gpt-5.5/demo"
+    assert solver.model_name == "gpt-5.5"
+    assert solver.reasoning_effort == "xhigh"
     assert performance.command == "write-performance-report"
     assert performance.candidate_report == [
         "reports/a/candidate_evaluation_report.json",
