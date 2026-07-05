@@ -121,3 +121,28 @@ def test_product_workflow_cli_commands_parse() -> None:
     assert evaluate.submission_source == "candidate"
     assert evaluate.build_script == "candidate/build.sh"
     assert evaluate.trusted_local is True
+
+
+def test_write_model_run_report_cli_command_parses() -> None:
+    parser = _build_parser()
+
+    parsed = parser.parse_args(
+        [
+            "write-model-run-report",
+            "--artifact-pair",
+            "artifacts/local_py",
+            "artifacts/model_py",
+            "--artifact-pair",
+            "artifacts/local_c",
+            "artifacts/model_c",
+            "--output",
+            "MODEL_RUN_REPORT.md",
+        ]
+    )
+
+    assert parsed.command == "write-model-run-report"
+    assert parsed.artifact_pair == [
+        ["artifacts/local_py", "artifacts/model_py"],
+        ["artifacts/local_c", "artifacts/model_c"],
+    ]
+    assert parsed.output == "MODEL_RUN_REPORT.md"

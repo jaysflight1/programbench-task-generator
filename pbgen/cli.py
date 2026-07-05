@@ -26,6 +26,7 @@ from pbgen.pipeline import run_batch_manifest, run_task_profile
 from pbgen.qc.qc_export import export_qc_queue
 from pbgen.released_package import release_task_package
 from pbgen.repo_discovery.checkout import init_task
+from pbgen.reporting.model_run_report import write_model_run_report
 from pbgen.reporting.run_summary import write_run_summary
 from pbgen.schemas import (
     CandidateSubmission,
@@ -95,6 +96,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "write-summary":
             _summary, markdown_path = write_run_summary(args.task_id, config)
             print(f"Wrote run summary: {markdown_path}")
+        elif args.command == "write-model-run-report":
+            pairs = [(Path(baseline), Path(model)) for baseline, model in args.artifact_pair]
+            output = write_model_run_report(pairs, Path(args.output))
+            print(f"Wrote model run report: {output}")
         elif args.command == "construct-task":
             profile_path = Path(args.profile)
             profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
@@ -336,6 +341,20 @@ def _build_parser() -> argparse.ArgumentParser:
     ]:
         cmd = sub.add_parser(name, help=help_text)
         cmd.add_argument("--task-id", required=True)
+
+    model_report = sub.add_parser(
+        "write-model-run-report",
+        help="Compare local baseline artifacts against raw model-backed task artifacts",
+    )
+    model_report.add_argument(
+        "--artifact-pair",
+        action="append",
+        nargs=2,
+        metavar=("BASELINE_ARTIFACT", "MODEL_ARTIFACT"),
+        required=True,
+        help="Baseline artifact dir and corresponding model artifact dir; repeat per task",
+    )
+    model_report.add_argument("--output", required=True, help="Markdown report output path")
 
     gen = sub.add_parser("generate-tests", help="Generate behavioral tests")
     gen.add_argument("--task-id", required=True)
