@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -39,10 +40,18 @@ class ModelGenerationRequest:
     max_output_chars: int
 
 
+@dataclass(frozen=True)
+class ModelGenerationResult:
+    """Raw model response plus optional provider metadata."""
+
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class ModelClient(Protocol):
     """Provider-neutral model client used by the model backend."""
 
-    def generate(self, request: ModelGenerationRequest) -> str:
+    def generate(self, request: ModelGenerationRequest) -> ModelGenerationResult:
         """Return raw model text for one generation request."""
 
 
@@ -57,38 +66,71 @@ class ExternalCommandModelClient:
 
     command: list[str]
 
-    def generate(self, request: ModelGenerationRequest) -> str:
+    def generate(self, request: ModelGenerationRequest) -> ModelGenerationResult:
         if not self.command:
             raise TestGenerationError(
                 "Model backend selected, but no external model command is configured. "
                 "Set PBGEN_MODEL_COMMAND, pass --model-command, or provide model_command "
                 "in pbgen_task.yaml."
             )
-        try:
-            completed = subprocess.run(
-                self.command,
-                input=request.prompt,
-                check=False,
-                text=True,
-                capture_output=True,
-                timeout=request.timeout_seconds,
+        with tempfile.TemporaryDirectory(prefix="pbgen-model-command-") as temp_dir:
+            metadata_path = Path(temp_dir) / "model_metadata.json"
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PBGEN_MODEL_METADATA_PATH": metadata_path.as_posix(),
+                    "PBGEN_MODEL_NAME": request.model or "",
+                    "PBGEN_MODEL_TEMPERATURE": str(request.temperature),
+                    "PBGEN_MODEL_TIMEOUT_SECONDS": str(request.timeout_seconds),
+                    "PBGEN_MODEL_MAX_OUTPUT_CHARS": str(request.max_output_chars),
+                }
             )
-        except OSError as exc:
-            raise TestGenerationError(f"Could not start model command {self.command!r}: {exc}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise TestGenerationError(
-                f"Model command timed out after {request.timeout_seconds} seconds."
-            ) from exc
-        if completed.returncode != 0:
-            stderr = _clip(completed.stderr.strip(), 2_000)
-            raise TestGenerationError(
-                f"Model command exited with status {completed.returncode}: {stderr}"
-            )
+            completed = _run_model_command(self.command, request, env)
+            metadata = _read_model_metadata(metadata_path)
         if len(completed.stdout) > request.max_output_chars:
             raise TestGenerationError(
                 f"Model response exceeded {request.max_output_chars} characters."
             )
-        return completed.stdout
+        return ModelGenerationResult(text=completed.stdout, metadata=metadata)
+
+
+def _run_model_command(
+    command: list[str],
+    request: ModelGenerationRequest,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    try:
+        completed = subprocess.run(
+            command,
+            input=request.prompt,
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=request.timeout_seconds,
+            env=env,
+        )
+    except OSError as exc:
+        raise TestGenerationError(f"Could not start model command {command!r}: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise TestGenerationError(
+            f"Model command timed out after {request.timeout_seconds} seconds."
+        ) from exc
+    if completed.returncode != 0:
+        stderr = _clip(completed.stderr.strip(), 2_000)
+        raise TestGenerationError(
+            f"Model command exited with status {completed.returncode}: {stderr}"
+        )
+    return completed
+
+
+def _read_model_metadata(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"metadata_parse_error": str(exc)}
+    return data if isinstance(data, dict) else {"metadata_parse_error": "metadata must be an object"}
 
 
 @dataclass(frozen=True)
@@ -98,9 +140,9 @@ class StaticModelClient:
     response: str
     requests: list[ModelGenerationRequest] = field(default_factory=list)
 
-    def generate(self, request: ModelGenerationRequest) -> str:
+    def generate(self, request: ModelGenerationRequest) -> ModelGenerationResult:
         self.requests.append(request)
-        return self.response
+        return ModelGenerationResult(text=self.response)
 
 
 @dataclass(frozen=True)
@@ -136,17 +178,44 @@ class ModelTestGenerationBackend(TestGenerationBackend):
 
     def generate_tests(self, prompt: TestGenerationPrompt, output_dir: Path) -> list[Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
+        prompt_text = render_model_generation_prompt(prompt)
+        prompt_path = _write_model_prompt(output_dir, prompt.iteration, prompt_text)
         request = ModelGenerationRequest(
-            prompt=render_model_generation_prompt(prompt),
+            prompt=prompt_text,
             model=self.config.model_name,
             temperature=self.config.model_temperature,
             timeout_seconds=self.config.model_timeout_seconds,
             max_output_chars=self.config.model_max_output_chars,
         )
-        raw_response = self.client.generate(request)
+        result = self.client.generate(request)
+        raw_response = result.text
+        response_path = _write_model_response(output_dir, prompt.iteration, raw_response)
+        _write_model_request_metadata(
+            output_dir,
+            prompt.iteration,
+            request,
+            prompt_path=prompt_path,
+            response_path=response_path,
+            raw_response=raw_response,
+            client_metadata=result.metadata,
+        )
         structured_cases = parse_model_test_case_response(raw_response)
         if structured_cases:
             return self._generate_structured_tests(prompt, output_dir, structured_cases)
+        if self.config.model_require_structured_cases:
+            _write_generation_diagnostics(
+                output_dir,
+                prompt.iteration,
+                [
+                    {
+                        "accepted": False,
+                        "reason": "structured test_cases JSON is required for this model run",
+                    }
+                ],
+            )
+            raise TestGenerationError(
+                "Model backend requires structured JSON with a top-level test_cases array."
+            )
         generated_tests = parse_model_generation_response(raw_response)
         return self._generate_legacy_pytest_tests(prompt, output_dir, generated_tests)
 
@@ -266,9 +335,12 @@ def render_model_generation_prompt(prompt: TestGenerationPrompt) -> str:
     payload = {
         "task_id": prompt.task_id,
         "iteration": prompt.iteration,
+        "task_spec": prompt.task_spec,
         "behavior_surface": prompt.behavior_surface.model_dump(mode="json"),
         "coverage_gaps": [gap.model_dump(mode="json") for gap in prompt.coverage_gaps],
         "existing_test_names": prompt.existing_test_names,
+        "previous_generation_diagnostics": prompt.previous_generation_diagnostics,
+        "previous_behavior_category_counts": prompt.previous_behavior_category_counts,
     }
     return (
         "You are generating hidden executable test cases for a ProgramBench-style CLI task.\n"
@@ -593,6 +665,54 @@ def _write_generation_diagnostics(
 
 def _diagnostic_path(output_dir: Path, iteration: int) -> Path:
     return output_dir.parent / "reports" / f"model_generation_iteration_{iteration}.json"
+
+
+def _write_model_prompt(output_dir: Path, iteration: int, prompt_text: str) -> Path:
+    path = output_dir.parent / "reports" / f"model_prompt_iteration_{iteration}.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(prompt_text, encoding="utf-8")
+    return path
+
+
+def _write_model_response(output_dir: Path, iteration: int, raw_response: str) -> Path:
+    path = output_dir.parent / "reports" / f"model_response_iteration_{iteration}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(raw_response, encoding="utf-8")
+    return path
+
+
+def _write_model_request_metadata(
+    output_dir: Path,
+    iteration: int,
+    request: ModelGenerationRequest,
+    *,
+    prompt_path: Path,
+    response_path: Path,
+    raw_response: str,
+    client_metadata: dict[str, Any],
+) -> None:
+    write_data(
+        output_dir.parent / "reports" / f"model_request_iteration_{iteration}.json",
+        {
+            "iteration": iteration,
+            "prompt_version": MODEL_PROMPT_VERSION,
+            "model": request.model,
+            "temperature": request.temperature,
+            "timeout_seconds": request.timeout_seconds,
+            "max_output_chars": request.max_output_chars,
+            "prompt_path": prompt_path.as_posix(),
+            "response_path": response_path.as_posix(),
+            "prompt_sha256": _sha256_text(request.prompt),
+            "response_sha256": _sha256_text(raw_response),
+            "prompt_chars": len(request.prompt),
+            "response_chars": len(raw_response),
+            "client_metadata": client_metadata,
+        },
+    )
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _rejected_diagnostic(

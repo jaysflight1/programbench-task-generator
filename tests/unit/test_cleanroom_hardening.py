@@ -100,6 +100,8 @@ def test_package_cleanroom_writes_manifests_and_excludes_solver_leaks(tmp_path: 
     assert "hidden_tests" not in solver_files
     assert "generated_tests" not in solver_files
     assert "generation_events" not in solver_files
+    assert "model_prompt_iteration_0.txt" not in solver_files
+    assert "model_response_iteration_0.json" not in solver_files
     assert "executable/program" not in solver_files
     assert (solver / "SUBMISSION.md").exists()
     assert (solver / "task.yaml").exists()
@@ -109,6 +111,8 @@ def test_package_cleanroom_writes_manifests_and_excludes_solver_leaks(tmp_path: 
     assert "Users" not in (solver / "task.yaml").read_text(encoding="utf-8")
     assert (evaluator / "hidden_tests" / "test_cases_iteration_0.json").exists()
     assert (evaluator / "reports" / "leak_check_report.json").exists()
+    assert (evaluator / "reports" / "model_prompt_iteration_0.txt").exists()
+    assert (evaluator / "reports" / "model_response_iteration_0.json").exists()
     assert (evaluator / "gold" / "program").exists()
 
 
@@ -171,5 +175,10 @@ def _write_minimal_task(config: PBGenConfig, task_id: str) -> ArtifactPaths:
     )
     write_data(paths.generated_tests / "test_cases_iteration_0.json", suite.model_dump(mode="json"))
     write_data(paths.reports / "suite_quality_report.json", {"task_id": task_id})
+    (paths.reports / "model_prompt_iteration_0.txt").write_text("prompt\n", encoding="utf-8")
+    (paths.reports / "model_response_iteration_0.json").write_text(
+        '{"test_cases": []}\n',
+        encoding="utf-8",
+    )
     write_data(paths.logs / "generation_events.jsonl", {"should": "stay evaluator-only"})
     return paths

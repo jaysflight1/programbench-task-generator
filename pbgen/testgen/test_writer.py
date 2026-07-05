@@ -679,7 +679,13 @@ def _render_pytest(cases: list[ExecutableTestCase]) -> str:
     for case in cases:
         tests.append(
             f'''def {case.test_id}() -> None:
-    result = run_cmd({case.args!r})
+    result = run_cmd(
+        {case.args!r},
+        stdin={case.stdin!r},
+        env={case.env!r},
+        fixture_files={case.fixture_files!r},
+        timeout_seconds={case.timeout_seconds!r},
+    )
     assert result.returncode == {case.expected_exit_code!r}
 {_render_output_assertions("stdout", case.expected_stdout)}\
 {_render_output_assertions("stderr", case.expected_stderr)}\
@@ -706,18 +712,44 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 
-def run_cmd(args: list[str]) -> subprocess.CompletedProcess[str]:
+def run_cmd(
+    args: list[str],
+    *,
+    stdin: str = "",
+    env: dict[str, str] | None = None,
+    fixture_files: dict[str, str] | None = None,
+    timeout_seconds: int = 10,
+) -> subprocess.CompletedProcess[str]:
     executable = os.environ["PBGEN_EXECUTABLE"]
-    return subprocess.run(
-        [executable, *args],
-        check=False,
-        text=True,
-        capture_output=True,
-        cwd=Path(__file__).parent,
-    )
+    local_env = os.environ.copy()
+    local_env.update(env or {})
+    with tempfile.TemporaryDirectory(prefix="pbgen-rendered-case-") as temp_dir:
+        cwd = Path(temp_dir)
+        write_fixture_files(cwd, fixture_files or {})
+        return subprocess.run(
+            [executable, *args],
+            check=False,
+            text=True,
+            input=stdin,
+            capture_output=True,
+            cwd=cwd,
+            env=local_env,
+            timeout=timeout_seconds,
+        )
+
+
+def write_fixture_files(cwd: Path, fixture_files: dict[str, str]) -> None:
+    for relative, content in fixture_files.items():
+        path = Path(relative)
+        if path.is_absolute() or ".." in path.parts:
+            raise AssertionError(f"unsafe fixture path: {relative}")
+        target = cwd / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
 '''
 
 

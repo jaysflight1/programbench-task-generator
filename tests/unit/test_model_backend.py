@@ -111,6 +111,9 @@ def test_model_backend_writes_structured_cases_after_gold_observation(tmp_path: 
     diagnostics = json.loads(
         (tmp_path / "reports" / "model_generation_iteration_0.json").read_text()
     )
+    request_metadata = json.loads(
+        (tmp_path / "reports" / "model_request_iteration_0.json").read_text()
+    )
 
     assert [path.name for path in paths] == ["test_behavior_iter_0.py"]
     assert len(suite.cases) == 1
@@ -119,6 +122,10 @@ def test_model_backend_writes_structured_cases_after_gold_observation(tmp_path: 
     assert suite.cases[0].behavior_category == "help"
     assert suite.cases[0].provenance["gold_observed"] == "true"
     assert diagnostics["behavior_category_counts"] == {"help": 1}
+    assert (tmp_path / "reports" / "model_prompt_iteration_0.txt").exists()
+    assert (tmp_path / "reports" / "model_response_iteration_0.json").exists()
+    assert len(request_metadata["prompt_sha256"]) == 64
+    assert len(request_metadata["response_sha256"]) == 64
     assert any(
         item.get("reason") == "duplicate structured test case"
         for item in diagnostics["diagnostics"]
@@ -184,6 +191,27 @@ def test_bad() -> None:
     }
 
 
+def test_model_backend_can_require_structured_cases(tmp_path: Path) -> None:
+    client = StaticModelClient(json.dumps({"tests": [{"filename": "safe.py", "content": SAFE_MODEL_TEST}]}))
+    backend = ModelTestGenerationBackend(
+        PBGenConfig(
+            workspace_root=tmp_path,
+            generation_backend="model",
+            model_require_structured_cases=True,
+        ),
+        client=client,
+    )
+
+    with pytest.raises(GenerationError, match="requires structured JSON"):
+        backend.generate_tests(_prompt(tmp_path), tmp_path / "generated_tests")
+
+    diagnostics = json.loads(
+        (tmp_path / "reports" / "model_generation_iteration_0.json").read_text()
+    )
+    assert diagnostics["diagnostics"][0]["accepted"] is False
+    assert "structured test_cases JSON is required" in diagnostics["diagnostics"][0]["reason"]
+
+
 def test_model_parser_accepts_fenced_python() -> None:
     parsed = parse_model_generation_response(f"Here is a test:\n```python\n{SAFE_MODEL_TEST}\n```")
 
@@ -211,12 +239,26 @@ def test_model_factory_requires_explicit_model_command(tmp_path: Path) -> None:
 
 
 def test_rendered_model_prompt_contains_surface_and_constraints(tmp_path: Path) -> None:
-    prompt_text = render_model_generation_prompt(_prompt(tmp_path))
+    prompt_text = render_model_generation_prompt(
+        _prompt(tmp_path).model_copy(
+            update={
+                "task_spec": {"language": "python", "build_system": "python-package"},
+                "existing_test_names": ["test_existing"],
+                "previous_generation_diagnostics": [
+                    {"accepted": False, "reason": "duplicate structured test case"}
+                ],
+                "previous_behavior_category_counts": {"help": 2},
+            }
+        )
+    )
 
     assert "Return JSON" in prompt_text
     assert "PBGEN_EXECUTABLE" in prompt_text
     assert "demo" in prompt_text
     assert "--help" in prompt_text
+    assert "python-package" in prompt_text
+    assert "test_existing" in prompt_text
+    assert "duplicate structured test case" in prompt_text
     assert "malformed-input" in prompt_text
     assert "filesystem-output" in prompt_text
     assert "error-formatting" in prompt_text

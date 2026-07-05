@@ -77,6 +77,15 @@ def apply_profile_to_config(profile: TaskProfile, config: PBGenConfig) -> PBGenC
         updates["model_name"] = profile.model_name
     if profile.model_temperature is not None and "model_temperature" in fields:
         updates["model_temperature"] = profile.model_temperature
+    if profile.model_timeout_seconds is not None and "model_timeout_seconds" in fields:
+        updates["model_timeout_seconds"] = profile.model_timeout_seconds
+    if profile.model_max_output_chars is not None and "model_max_output_chars" in fields:
+        updates["model_max_output_chars"] = profile.model_max_output_chars
+    if (
+        profile.model_require_structured_cases is not None
+        and "model_require_structured_cases" in fields
+    ):
+        updates["model_require_structured_cases"] = profile.model_require_structured_cases
 
     return config.model_copy(update=updates)
 

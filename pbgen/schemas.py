@@ -162,6 +162,9 @@ class TaskProfile(PBModel):
     model_command: list[str] | None = None
     model_name: str | None = None
     model_temperature: float | None = None
+    model_timeout_seconds: int | None = None
+    model_max_output_chars: int | None = None
+    model_require_structured_cases: bool | None = None
     notes: list[str] = Field(default_factory=list)
 
 

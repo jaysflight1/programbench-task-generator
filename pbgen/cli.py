@@ -273,6 +273,14 @@ def _apply_generation_args(config: PBGenConfig, args: argparse.Namespace) -> Non
     model_temperature = getattr(args, "model_temperature", None)
     if model_temperature is not None:
         config.model_temperature = model_temperature
+    model_timeout_seconds = getattr(args, "model_timeout_seconds", None)
+    if model_timeout_seconds is not None:
+        config.model_timeout_seconds = model_timeout_seconds
+    model_max_output_chars = getattr(args, "model_max_output_chars", None)
+    if model_max_output_chars is not None:
+        config.model_max_output_chars = model_max_output_chars
+    if getattr(args, "model_require_structured_cases", False):
+        config.model_require_structured_cases = True
 
 
 def _profile_with_generation_args(profile: TaskProfile, args: argparse.Namespace) -> TaskProfile:
@@ -289,6 +297,14 @@ def _profile_with_generation_args(profile: TaskProfile, args: argparse.Namespace
     model_temperature = getattr(args, "model_temperature", None)
     if model_temperature is not None:
         updates["model_temperature"] = model_temperature
+    model_timeout_seconds = getattr(args, "model_timeout_seconds", None)
+    if model_timeout_seconds is not None:
+        updates["model_timeout_seconds"] = model_timeout_seconds
+    model_max_output_chars = getattr(args, "model_max_output_chars", None)
+    if model_max_output_chars is not None:
+        updates["model_max_output_chars"] = model_max_output_chars
+    if getattr(args, "model_require_structured_cases", False):
+        updates["model_require_structured_cases"] = True
     return profile.model_copy(update=updates) if updates else profile
 
 
@@ -390,6 +406,17 @@ def _add_generation_backend_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--model-name", help="Optional model name metadata for configured model clients")
     parser.add_argument("--model-temperature", type=float, help="Optional model temperature metadata")
+    parser.add_argument("--model-timeout-seconds", type=int, help="Timeout for one model call")
+    parser.add_argument(
+        "--model-max-output-chars",
+        type=int,
+        help="Maximum accepted stdout size from the model command",
+    )
+    parser.add_argument(
+        "--model-require-structured-cases",
+        action="store_true",
+        help="Reject legacy raw pytest output and require top-level JSON test_cases",
+    )
 
 
 def _add_profile_run_args(parser: argparse.ArgumentParser) -> None:

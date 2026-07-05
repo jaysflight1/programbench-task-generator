@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.coverage.adapters import coverage_unavailable_report
 from pbgen.coverage.registry import run_registered_coverage, write_coverage_artifacts
@@ -47,12 +50,19 @@ class CoverageGuidedTestController:
         )
         generated: list[str] = []
         gaps: list[CoverageGap] = []
+        existing_test_names: list[str] = []
+        previous_generation_diagnostics: list[dict[str, Any]] = []
+        previous_behavior_category_counts: dict[str, int] = {}
         previous_coverage: float | None = None
         for iteration in range(max_iterations):
             prompt = TestGenerationPrompt(
                 task_id=task_id,
+                task_spec=spec.model_dump(mode="json"),
                 behavior_surface=surface,
                 coverage_gaps=gaps,
+                existing_test_names=existing_test_names,
+                previous_generation_diagnostics=previous_generation_diagnostics,
+                previous_behavior_category_counts=previous_behavior_category_counts,
                 iteration=iteration,
                 executable_path=paths.executable,
                 execution_policy=self.config.execution_policy,
@@ -74,6 +84,10 @@ class CoverageGuidedTestController:
             )
             result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             self._run_iteration_quality_gates(task_id, iteration, paths, logger)
+            feedback = _load_generation_feedback(paths, iteration)
+            previous_generation_diagnostics = feedback["diagnostics"]
+            previous_behavior_category_counts = feedback["behavior_category_counts"]
+            existing_test_names = _accepted_test_ids(paths.generated_tests)
             result = run_generated_suite(task_id, paths.generated_tests, paths.executable)
             coverage_report = None
             if self.config.coverage_enabled:
@@ -223,3 +237,65 @@ class CoverageGuidedTestController:
                 metrics=item.model_dump(mode="json"),
                 qc_flags=[item.queue],
             )
+
+
+def _accepted_test_ids(tests_path: Path) -> list[str]:
+    test_ids: set[str] = set()
+    for suite_path in sorted(tests_path.glob("test_cases_iteration*.json")):
+        if suite_path.name.endswith("_artifact.json"):
+            continue
+        try:
+            suite = read_data(suite_path)
+        except (OSError, ValueError):
+            continue
+        cases = suite.get("cases")
+        if not isinstance(cases, list):
+            continue
+        for case in cases:
+            if isinstance(case, dict) and isinstance(case.get("test_id"), str):
+                test_ids.add(case["test_id"])
+    return sorted(test_ids)
+
+
+def _load_generation_feedback(paths: ArtifactPaths, iteration: int) -> dict[str, Any]:
+    for filename in (
+        f"model_generation_iteration_{iteration}.json",
+        f"agentic_generation_iteration_{iteration}.json",
+    ):
+        path = paths.reports / filename
+        if not path.exists():
+            continue
+        data = read_data(path)
+        diagnostics = data.get("diagnostics")
+        counts = data.get("behavior_category_counts")
+        return {
+            "diagnostics": _compact_generation_diagnostics(
+                diagnostics if isinstance(diagnostics, list) else []
+            ),
+            "behavior_category_counts": counts if isinstance(counts, dict) else {},
+        }
+    return {"diagnostics": [], "behavior_category_counts": {}}
+
+
+def _compact_generation_diagnostics(diagnostics: list[object]) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for item in diagnostics[:50]:
+        if not isinstance(item, dict):
+            continue
+        compacted.append(
+            {
+                key: value
+                for key, value in item.items()
+                if key
+                in {
+                    "accepted",
+                    "proposal_index",
+                    "test_id",
+                    "behavior_category",
+                    "reason",
+                    "issues",
+                    "observed_gold",
+                }
+            }
+        )
+    return compacted

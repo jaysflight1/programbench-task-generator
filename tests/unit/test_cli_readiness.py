@@ -55,6 +55,11 @@ def test_run_task_generation_cli_args_override_profile_defaults() -> None:
             "review-model",
             "--model-temperature",
             "0.05",
+            "--model-timeout-seconds",
+            "900",
+            "--model-max-output-chars",
+            "2000000",
+            "--model-require-structured-cases",
         ]
     )
     profile = TaskProfile(
@@ -62,6 +67,9 @@ def test_run_task_generation_cli_args_override_profile_defaults() -> None:
         model_command=["old-model"],
         model_name="old",
         model_temperature=0.9,
+        model_timeout_seconds=120,
+        model_max_output_chars=200_000,
+        model_require_structured_cases=False,
     )
 
     updated = _profile_with_generation_args(profile, args)
@@ -70,6 +78,9 @@ def test_run_task_generation_cli_args_override_profile_defaults() -> None:
     assert updated.model_command == ["fake-model", "--json"]
     assert updated.model_name == "review-model"
     assert updated.model_temperature == 0.05
+    assert updated.model_timeout_seconds == 900
+    assert updated.model_max_output_chars == 2_000_000
+    assert updated.model_require_structured_cases is True
 
 
 def test_product_workflow_cli_commands_parse() -> None:

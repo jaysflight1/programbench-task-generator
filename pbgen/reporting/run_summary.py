@@ -180,7 +180,7 @@ def render_run_summary_markdown(summary: RunSummaryReport) -> str:
         "",
         "| Field | Value |",
         "|---|---|",
-        "| Scope | Artifact-only code readiness summary; no repository execution or model invocation. |",
+        "| Scope | Task-construction artifact summary for this generated benchmark run. |",
         f"| Repository | {_md_value(summary.repo_url)} |",
         f"| Commit | {_md_value(summary.commit_sha)} |",
         f"| Language | {_md_value(summary.language)} |",

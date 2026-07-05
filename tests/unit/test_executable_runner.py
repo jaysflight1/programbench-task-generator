@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -14,6 +17,7 @@ from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.schemas import ExecutableTestCase, ExecutableTestSuite, ExpectedOutput
 from pbgen.serialization import write_data
 from pbgen.subprocess_utils import CommandResult
+from pbgen.testgen.test_writer import render_pytest_compatibility
 
 
 def test_run_executable_test_cases_records_pass_and_failure(tmp_path: Path) -> None:
@@ -186,6 +190,38 @@ def test_run_generated_suite_falls_back_to_pytest_without_canonical_cases(tmp_pa
 
     assert result.total_tests == 1
     assert result.pass_rate == 1.0
+
+
+def test_rendered_pytest_supports_stdin_env_and_fixtures(tmp_path: Path) -> None:
+    executable = _write_cli(tmp_path / "tool")
+    test_file = tmp_path / "test_rendered_behavior.py"
+    case = ExecutableTestCase(
+        test_id="test_context",
+        task_id="demo",
+        args=["context", "input.txt"],
+        stdin="hello stdin\n",
+        env={"PBGEN_SAMPLE": "sample-env"},
+        fixture_files={"input.txt": "fixture-data"},
+        expected_exit_code=0,
+        expected_stdout=ExpectedOutput(
+            contains=["stdin=hello stdin", "env=sample-env", "file=fixture-data"],
+        ),
+        expected_stderr=ExpectedOutput(exact=""),
+        source="unit",
+    )
+    test_file.write_text(render_pytest_compatibility([case]), encoding="utf-8")
+    env = os.environ.copy()
+    env["PBGEN_EXECUTABLE"] = str(executable)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", str(test_file), "-q"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_run_generated_suite_with_injected_runner_requires_canonical_cases(

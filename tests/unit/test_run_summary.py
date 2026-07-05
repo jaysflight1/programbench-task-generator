@@ -55,7 +55,7 @@ def test_write_run_summary_writes_json_and_markdown(tmp_path: Path) -> None:
 
     markdown = markdown_path.read_text(encoding="utf-8")
     assert "# Run Summary: demo" in markdown
-    assert "Artifact-only code readiness summary" in markdown
+    assert "Task-construction artifact summary" in markdown
     assert "## Headline Metrics" in markdown
     assert "Action needed: 2 QC queue item(s) remain open." in markdown
 

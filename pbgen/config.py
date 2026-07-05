@@ -55,6 +55,7 @@ class PBGenConfig(BaseModel):
     model_temperature: float = 0.2
     model_timeout_seconds: int = 120
     model_max_output_chars: int = 200_000
+    model_require_structured_cases: bool = False
 
     def model_post_init(self, __context: object) -> None:
         if self.artifacts_dir is None:

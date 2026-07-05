@@ -108,6 +108,9 @@ def test_apply_profile_to_config_returns_copy_with_overrides(tmp_path: Path) -> 
         model_command=["model-cli", "--json"],
         model_name="fast-model",
         model_temperature=0.1,
+        model_timeout_seconds=900,
+        model_max_output_chars=2_000_000,
+        model_require_structured_cases=True,
     )
 
     updated = apply_profile_to_config(profile, config)
@@ -128,6 +131,9 @@ def test_apply_profile_to_config_returns_copy_with_overrides(tmp_path: Path) -> 
     assert updated.model_command == ["model-cli", "--json"]
     assert updated.model_name == "fast-model"
     assert updated.model_temperature == 0.1
+    assert updated.model_timeout_seconds == 900
+    assert updated.model_max_output_chars == 2_000_000
+    assert updated.model_require_structured_cases is True
     assert config.coverage_backend == "python"
     assert config.coverage_target == 0.5
     assert config.min_coverage_delta_per_iteration == 0.2
