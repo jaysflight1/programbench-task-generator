@@ -9,10 +9,12 @@ import stat
 
 from pbgen.config import ArtifactPaths, PBGenConfig
 from pbgen.errors import PBGenError
+from pbgen.eval.programbench_metrics import attach_programbench_metrics
 from pbgen.eval.submission_runner import run_generated_suite
 from pbgen.schemas import (
     CandidateEvaluationReport,
     CandidateSubmission,
+    NoNetworkValidationReport,
     ReleasedTaskPackageManifest,
     TaskSpec,
 )
@@ -70,8 +72,7 @@ def evaluate_executable_candidate(
         executable_path=executable_path,
         outcomes=result.outcomes,
     )
-    write_data(paths.reports / "candidate_evaluation_report.json", report.model_dump(mode="json"))
-    return report
+    return _write_candidate_report(paths.reports, attach_programbench_metrics(report))
 
 
 def evaluate_source_submission(
@@ -123,7 +124,7 @@ def evaluate_source_submission(
         _write_build_log(build_log_path, None, str(exc))
         return _write_report(
             package,
-            _failed_build_report(package, config, build_log_path, str(exc)),
+            _failed_build_report(package, config, build_log_path, str(exc), submission),
         )
 
     _write_build_log(build_log_path, build_result, None)
@@ -135,6 +136,7 @@ def evaluate_source_submission(
                 config,
                 build_log_path,
                 f"candidate build script exited with status {build_result.returncode}",
+                submission,
             ),
         )
 
@@ -147,6 +149,7 @@ def evaluate_source_submission(
                 config,
                 build_log_path,
                 "candidate build script did not produce out/program",
+                submission,
             ),
         )
     executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
@@ -172,6 +175,12 @@ def evaluate_source_submission(
                 executable_path=executable,
                 build_log_path=build_log_path,
                 reason=str(exc),
+                model_name=submission.model_name,
+                attempt_id=submission.attempt_id,
+                api_calls=submission.api_calls,
+                cost_usd=submission.cost_usd,
+                cheating_flagged=submission.cheating_flagged,
+                disqualification_reason=submission.disqualification_reason,
             ),
         )
     report = CandidateEvaluationReport(
@@ -185,6 +194,12 @@ def evaluate_source_submission(
         executable_path=executable,
         build_log_path=build_log_path,
         outcomes=result.outcomes,
+        model_name=submission.model_name,
+        attempt_id=submission.attempt_id,
+        api_calls=submission.api_calls,
+        cost_usd=submission.cost_usd,
+        cheating_flagged=submission.cheating_flagged,
+        disqualification_reason=submission.disqualification_reason,
     )
     return _write_report(package, report)
 
@@ -316,6 +331,7 @@ def _failed_build_report(
     config: PBGenConfig,
     build_log_path: Path,
     reason: str,
+    submission: CandidateSubmission | None = None,
 ) -> CandidateEvaluationReport:
     return CandidateEvaluationReport(
         task_id=package.task_id,
@@ -327,6 +343,12 @@ def _failed_build_report(
         runtime_policy=config.execution_policy,
         build_log_path=build_log_path,
         reason=reason,
+        model_name=submission.model_name if submission else None,
+        attempt_id=submission.attempt_id if submission else None,
+        api_calls=submission.api_calls if submission else None,
+        cost_usd=submission.cost_usd if submission else None,
+        cheating_flagged=submission.cheating_flagged if submission else False,
+        disqualification_reason=submission.disqualification_reason if submission else None,
     )
 
 
@@ -363,8 +385,59 @@ def _write_report(
     report: CandidateEvaluationReport,
 ) -> CandidateEvaluationReport:
     package.reports_dir.mkdir(parents=True, exist_ok=True)
-    write_data(
-        package.reports_dir / "candidate_evaluation_report.json",
-        report.model_dump(mode="json"),
-    )
+    report = _write_candidate_report(package.reports_dir, attach_programbench_metrics(report))
+    if report.runtime_policy == "docker-no-network":
+        _write_no_network_validation_report(
+            package,
+            report,
+            package.reports_dir / "candidate_evaluation_report.json",
+        )
     return report
+
+
+def _write_candidate_report(
+    reports_dir: Path,
+    report: CandidateEvaluationReport,
+) -> CandidateEvaluationReport:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    report_path = reports_dir / "candidate_evaluation_report.json"
+    write_data(report_path, report.model_dump(mode="json"))
+    if report.programbench_metrics is not None:
+        write_data(
+            reports_dir / "programbench_metrics.json",
+            report.programbench_metrics.model_dump(mode="json"),
+        )
+    return report
+
+
+def _write_no_network_validation_report(
+    package: _EvaluationPackage,
+    report: CandidateEvaluationReport,
+    report_path: Path,
+) -> None:
+    status = _no_network_status(report)
+    validation = NoNetworkValidationReport(
+        task_id=package.task_id,
+        status=status,
+        runtime_policy=report.runtime_policy,
+        validated=status == "passed",
+        tests_passed=report.tests_passed,
+        total_tests=report.total_tests,
+        pass_rate=report.pass_rate,
+        build_success=report.build_success,
+        reason=report.reason,
+        candidate_report_path=report_path,
+    )
+    write_data(
+        package.reports_dir / "no_network_validation_report.json",
+        validation.model_dump(mode="json"),
+    )
+
+
+def _no_network_status(report: CandidateEvaluationReport) -> str:
+    if report.resolved and report.build_success and report.pass_rate == 1.0:
+        return "passed"
+    reason = report.reason or ""
+    if not report.build_success and "Docker" in reason:
+        return "blocked"
+    return "failed"

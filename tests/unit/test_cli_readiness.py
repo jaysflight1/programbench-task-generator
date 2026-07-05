@@ -108,6 +108,29 @@ def test_product_workflow_cli_commands_parse() -> None:
             "--build-script",
             "candidate/build.sh",
             "--trusted-local",
+            "--model-name",
+            "model-a",
+            "--attempt-id",
+            "attempt-1",
+            "--api-calls",
+            "12",
+            "--cost-usd",
+            "0.5",
+            "--docker-image",
+            "pbgen-eval:py-c",
+        ]
+    )
+    performance = parser.parse_args(
+        [
+            "write-performance-report",
+            "--candidate-report",
+            "reports/a/candidate_evaluation_report.json",
+            "--candidate-report",
+            "reports/b/candidate_evaluation_report.json",
+            "--output",
+            "PROGRAMBENCH_PERFORMANCE.md",
+            "--model-name",
+            "model-a",
         ]
     )
 
@@ -121,6 +144,17 @@ def test_product_workflow_cli_commands_parse() -> None:
     assert evaluate.submission_source == "candidate"
     assert evaluate.build_script == "candidate/build.sh"
     assert evaluate.trusted_local is True
+    assert evaluate.model_name == "model-a"
+    assert evaluate.attempt_id == "attempt-1"
+    assert evaluate.api_calls == 12
+    assert evaluate.cost_usd == 0.5
+    assert evaluate.docker_image == "pbgen-eval:py-c"
+    assert performance.command == "write-performance-report"
+    assert performance.candidate_report == [
+        "reports/a/candidate_evaluation_report.json",
+        "reports/b/candidate_evaluation_report.json",
+    ]
+    assert performance.model_name == "model-a"
 
 
 def test_write_model_run_report_cli_command_parses() -> None:

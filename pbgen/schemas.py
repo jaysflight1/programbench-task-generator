@@ -524,6 +524,53 @@ class CandidateSubmission(PBModel):
     build_script: Path | None = None
     executable_path: Path | None = None
     output_dir: Path | None = None
+    model_name: str | None = None
+    attempt_id: str | None = None
+    api_calls: int | None = None
+    cost_usd: float | None = None
+    cheating_flagged: bool = False
+    disqualification_reason: str | None = None
+
+
+class ProgramBenchEvaluationMetrics(PBModel):
+    """ProgramBench-facing model performance metrics for one task instance."""
+
+    task_id: str
+    model_name: str | None = None
+    attempt_id: str | None = None
+    resolved: bool
+    almost_resolved: bool
+    test_pass_rate: float
+    raw_test_pass_rate: float
+    tests_passed: int
+    total_tests: int
+    build_success: bool
+    cheating_flagged: bool = False
+    disqualified: bool = False
+    disqualification_reason: str | None = None
+    api_calls: int | None = None
+    cost_usd: float | None = None
+
+
+class ProgramBenchModelPerformanceReport(PBModel):
+    """Aggregate ProgramBench-style performance report across task instances."""
+
+    model_name: str | None = None
+    task_count: int
+    resolved_count: int
+    almost_resolved_count: int
+    percent_resolved: float
+    percent_almost_resolved: float
+    macro_average_test_pass_rate: float
+    micro_average_test_pass_rate: float
+    build_success_rate: float
+    disqualified_count: int
+    disqualification_rate: float
+    total_api_calls: int | None = None
+    average_api_calls_per_task: float | None = None
+    total_cost_usd: float | None = None
+    average_cost_usd_per_task: float | None = None
+    task_metrics: list[ProgramBenchEvaluationMetrics] = Field(default_factory=list)
 
 
 class CandidateEvaluationReport(PBModel):
@@ -540,6 +587,29 @@ class CandidateEvaluationReport(PBModel):
     build_log_path: Path | None = None
     outcomes: list[PerTestOutcome] = Field(default_factory=list)
     reason: str | None = None
+    model_name: str | None = None
+    attempt_id: str | None = None
+    api_calls: int | None = None
+    cost_usd: float | None = None
+    cheating_flagged: bool = False
+    disqualification_reason: str | None = None
+    programbench_metrics: ProgramBenchEvaluationMetrics | None = None
+
+
+class NoNetworkValidationReport(PBModel):
+    """Outcome of evaluator validation under docker-no-network policy."""
+
+    task_id: str
+    status: str
+    runtime_policy: str
+    validated: bool
+    network_disabled: bool = True
+    tests_passed: int = 0
+    total_tests: int = 0
+    pass_rate: float = 0.0
+    build_success: bool = False
+    reason: str | None = None
+    candidate_report_path: Path | None = None
 
 
 class GenerationEvent(PBModel):

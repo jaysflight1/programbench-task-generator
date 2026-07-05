@@ -3,6 +3,8 @@ from pbgen.schemas import (
     ExecutableTestCase,
     ExecutableTestSuite,
     ExpectedOutput,
+    ProgramBenchEvaluationMetrics,
+    ProgramBenchModelPerformanceReport,
     ReleasedTaskPackageManifest,
     RewardShapeReport,
     SuiteQualityReport,
@@ -112,3 +114,39 @@ def test_release_and_candidate_reports_serialize_product_boundaries() -> None:
     assert loaded_manifest.accepted_test_count == 3
     assert loaded_report.resolved is True
     assert loaded_report.pass_rate == 1.0
+
+
+def test_programbench_performance_metrics_serialize() -> None:
+    metrics = ProgramBenchEvaluationMetrics(
+        task_id="demo",
+        model_name="model-a",
+        attempt_id="attempt-1",
+        resolved=True,
+        almost_resolved=True,
+        test_pass_rate=1.0,
+        raw_test_pass_rate=1.0,
+        tests_passed=3,
+        total_tests=3,
+        build_success=True,
+        api_calls=12,
+        cost_usd=0.5,
+    )
+    report = ProgramBenchModelPerformanceReport(
+        model_name="model-a",
+        task_count=1,
+        resolved_count=1,
+        almost_resolved_count=1,
+        percent_resolved=1.0,
+        percent_almost_resolved=1.0,
+        macro_average_test_pass_rate=1.0,
+        micro_average_test_pass_rate=1.0,
+        build_success_rate=1.0,
+        disqualified_count=0,
+        disqualification_rate=0.0,
+        task_metrics=[metrics],
+    )
+
+    loaded = ProgramBenchModelPerformanceReport.model_validate_json(report.model_dump_json())
+
+    assert loaded.task_metrics[0].task_id == "demo"
+    assert loaded.task_metrics[0].resolved is True

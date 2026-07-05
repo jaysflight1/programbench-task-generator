@@ -27,6 +27,7 @@ from pbgen.qc.qc_export import export_qc_queue
 from pbgen.released_package import release_task_package
 from pbgen.repo_discovery.checkout import init_task
 from pbgen.reporting.model_run_report import write_model_run_report
+from pbgen.reporting.programbench_performance import write_programbench_performance_report
 from pbgen.reporting.run_summary import write_run_summary
 from pbgen.schemas import (
     CandidateSubmission,
@@ -100,6 +101,13 @@ def main(argv: list[str] | None = None) -> int:
             pairs = [(Path(baseline), Path(model)) for baseline, model in args.artifact_pair]
             output = write_model_run_report(pairs, Path(args.output))
             print(f"Wrote model run report: {output}")
+        elif args.command == "write-performance-report":
+            _report, json_path, markdown_path = write_programbench_performance_report(
+                [Path(path) for path in args.candidate_report],
+                Path(args.output),
+                model_name=args.model_name,
+            )
+            print(f"Wrote ProgramBench performance report: {json_path} and {markdown_path}")
         elif args.command == "construct-task":
             profile_path = Path(args.profile)
             profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
@@ -118,19 +126,33 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "evaluate-submission":
             if args.execution_policy:
                 config.execution_policy = args.execution_policy
+            if args.docker_image:
+                config.docker_image = args.docker_image
             if args.trusted_local:
                 config.trusted_local_execution = True
                 config.execution_policy = "trusted-local"
-            report = evaluate_source_submission(
+            evaluation_report = evaluate_source_submission(
                 CandidateSubmission(
                     package_path=Path(args.package),
                     submission_source=Path(args.submission_source),
                     build_script=Path(args.build_script),
                     output_dir=Path(args.output_dir) if args.output_dir else None,
+                    model_name=args.model_name,
+                    attempt_id=args.attempt_id,
+                    api_calls=args.api_calls,
+                    cost_usd=args.cost_usd,
+                    cheating_flagged=args.cheating_flagged,
+                    disqualification_reason=args.disqualification_reason,
                 ),
                 config,
             )
-            print(f"Submission pass rate: {report.pass_rate:.3f}")
+            metrics = evaluation_report.programbench_metrics
+            suffix = (
+                f"; ProgramBench resolved: {metrics.resolved}; almost: {metrics.almost_resolved}"
+                if metrics
+                else ""
+            )
+            print(f"Submission pass rate: {evaluation_report.pass_rate:.3f}{suffix}")
         elif args.command == "run-task":
             profile_path = Path(args.profile)
             profile = resolve_profile_paths(load_task_profile(profile_path), profile_path.parent)
@@ -356,6 +378,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     model_report.add_argument("--output", required=True, help="Markdown report output path")
 
+    performance_report = sub.add_parser(
+        "write-performance-report",
+        help="Aggregate candidate evaluations into ProgramBench model-performance metrics",
+    )
+    performance_report.add_argument(
+        "--candidate-report",
+        action="append",
+        required=True,
+        help="Path to a candidate_evaluation_report.json file; repeat per task",
+    )
+    performance_report.add_argument("--output", required=True, help="Markdown/JSON output path")
+    performance_report.add_argument("--model-name", help="Optional model name override")
+
     gen = sub.add_parser("generate-tests", help="Generate behavioral tests")
     gen.add_argument("--task-id", required=True)
     gen.add_argument("--iterations", type=int, default=5)
@@ -391,9 +426,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override execution policy for this candidate evaluation",
     )
     evaluate.add_argument(
+        "--docker-image",
+        help="Docker image to use for docker-no-network candidate evaluation",
+    )
+    evaluate.add_argument(
         "--trusted-local",
         action="store_true",
         help="Explicitly allow local candidate build execution for trusted fixtures",
+    )
+    evaluate.add_argument("--model-name", help="Candidate model name for ProgramBench metrics")
+    evaluate.add_argument("--attempt-id", help="Candidate run/attempt identifier")
+    evaluate.add_argument("--api-calls", type=int, help="API calls used by the model on this task")
+    evaluate.add_argument("--cost-usd", type=float, help="Model cost in USD for this task")
+    evaluate.add_argument(
+        "--cheating-flagged",
+        action="store_true",
+        help="Mark this candidate as cheating-flagged/disqualified for ProgramBench scoring",
+    )
+    evaluate.add_argument(
+        "--disqualification-reason",
+        help="Optional disqualification reason, such as source lookup or reference wrapper",
     )
 
     run = sub.add_parser("run-task", help="Run the deterministic local pipeline from a task profile")
